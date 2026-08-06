@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <title>Landsat-AI| Scientific Control Panel V2</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap"
+        rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#135bec",
+                        "background-dark": "#101622",
+                        "panel-dark": "#161e2e",
+                        "border-dark": "#2a3449",
+                        "alert-red": "#ef4444",
+                        "safe-green": "#10b981",
+                        "warn-yellow": "#f59e0b",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"],
+                        "mono": ["JetBrains Mono", "monospace"],
+                    },
+                },
+            },
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
+        .font-mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        ::-webkit-scrollbar {
+            width: 5px;
+            height: 5px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #101622;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #2a3449;
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #135bec;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+        }
+
+        .leaflet-control-zoom {
+            display: none;
+        }
+
+        /* AGGRESSIVE BLINK ANIMATION */
+        @keyframes aggressive-blink {
+
+            0%,
+            100% {
+                stroke: #ff0000;
+                stroke-width: 4px;
+                stroke-opacity: 1;
+                fill: #ff0000;
+                fill-opacity: 0.6;
+                filter: drop-shadow(0 0 8px rgba(255, 0, 0, 0.8));
+            }
+
+            50% {
+                stroke: #8b0000;
+                stroke-width: 2px;
+                stroke-opacity: 0.5;
+                fill: #ff0000;
+                fill-opacity: 0.1;
+                filter: drop-shadow(0 0 2px rgba(255, 0, 0, 0.2));
+            }
+        }
+
+        .danger-zone-blink {
+            animation: aggressive-blink 1s infinite linear !important;
+            vector-effect: non-scaling-stroke;
+        }
+
+        /* Pulse Wave Animation (Legacy v1 Style) */
+        @keyframes pulse-wave {
+            0% {
+                transform: translate(-50%, -50%) scale(0.3);
+                opacity: 0.9;
+            }
+
+            100% {
+                transform: translate(-50%, -50%) scale(2.5);
+                opacity: 0;
+            }
+        }
+
+        .pulse-marker {
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(255, 0, 0, 0.8) 0%, rgba(255, 0, 0, 0) 70%);
+            pointer-events: none;
+            z-index: 1000;
+        }
+
+        .pulse-marker::before,
+        .pulse-marker::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            border: 3px solid rgba(255, 0, 0, 0.8);
+            animation: pulse-wave 2s ease-out infinite;
+        }
+
+        .pulse-marker::after {
+            animation-delay: 1s;
+        }
+
+        .marquee-container {
+            overflow: hidden;
+            white-space: nowrap;
+        }
+
+        .marquee-content {
+            display: inline-block;
+            animation: marquee 40s linear infinite;
+        }
+
+        @keyframes marquee {
+            0% {
+                transform: translateX(100%);
+            }
+
+            100% {
+                transform: translateX(-100%);
+            }
+        }
+
+        .zone-card {
+            transition: all 0.2s;
+        }
+
+        .zone-card:hover {
+            transform: translateX(4px);
+        }
+
+        .zone-card.active {
+            border-color: #135bec !important;
+            background: rgba(19, 91, 236, 0.08) !important;
+        }
+    </style>
+</head>
+
+<body class="bg-background-dark text-slate-200 h-screen flex flex-col overflow-hidden text-sm">
+
+    <!-- Header -->
+    <header class="h-11 bg-panel-dark border-b border-border-dark flex items-center justify-between px-4 shrink-0 z-50">
+        <div class="flex items-center gap-4">
+            <h1 class="font-bold tracking-wider text-xs uppercase text-white"><span class="text-primary">K-LRM</span> //
+                SCIENTIFIC V2 (ISOLATED)</h1>
+        </div>
+        <div class="flex items-center gap-5">
+            <span class="text-safe-green text-xs font-mono" id="systemStatus">SYSTEM NORMAL</span>
+            <span id="clockIST" class="text-xs font-mono text-slate-400">IST: --:--:--</span>
+        </div>
+    </header>
+
+    <!-- Main -->
+    <main class="flex-1 flex overflow-hidden relative">
+        <!-- Center: Map -->
+        <section class="flex-1 relative bg-background-dark overflow-hidden flex flex-col">
+            <div class="absolute inset-0 z-0" id="map"></div>
+            <!-- Cursor Info -->
+            <div class="absolute bottom-3 left-3 z-10 pointer-events-none">
+                <div
+                    class="bg-panel-dark/80 backdrop-blur border border-border-dark px-3 py-1.5 rounded text-[10px] font-mono text-slate-300 shadow-lg">
+                    <span id="cursorCoords">--</span> | Loaded: <span id="zonesLoaded">--</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Right Panel: Analysis -->
+        <aside
+            class="w-[360px] bg-panel-dark border-l border-border-dark flex flex-col shrink-0 z-20 shadow-xl overflow-y-auto">
+            <div class="p-4 border-b border-border-dark">
+                <h2 class="text-lg font-bold text-white" id="rpTitle">Select a Zone</h2>
+                <div class="flex gap-2 mt-2" id="rpBadges"></div>
+            </div>
+            <div class="p-4 space-y-5">
+                <div class="flex items-center justify-center">
+                    <div class="relative w-28 h-28 flex items-center justify-center">
+                        <svg class="w-full h-full transform -rotate-90">
+                            <circle class="text-white/5" cx="56" cy="56" fill="transparent" r="48" stroke="currentColor"
+                                stroke-width="7"></circle>
+                            <circle id="rpGaugeCircle" class="text-safe-green" cx="56" cy="56" fill="transparent" r="48"
+                                stroke="currentColor" stroke-dasharray="301.59" stroke-dashoffset="301.59"
+                                stroke-width="7" style="transition: all 0.8s ease;"></circle>
+                        </svg>
+                        <div class="absolute flex flex-col items-center">
+                            <span class="text-2xl font-bold font-mono text-white" id="rpGaugeVal">--%</span>
+                            <span class="text-[9px] font-bold tracking-widest uppercase mt-0.5 text-safe-green"
+                                id="rpGaugeLabel">--</span>
+                        </div>
+                    </div>
+                </div>
+                <div id="rpProfile"
+                    class="bg-background-dark p-3 rounded border border-border-dark font-mono text-[10px] leading-relaxed text-slate-400 relative overflow-hidden">
+                    <p class="pl-3">Select a zone to view data.</p>
+                </div>
+            </div>
+        </aside>
+    </main>
+
+    <footer class="h-7 bg-[#0a0e17] border-t border-border-dark shrink-0 flex items-center overflow-hidden z-50">
+        <div class="bg-primary px-3 h-full flex items-center text-[10px] font-bold text-white z-10 shrink-0">V2 LIVE
+        </div>
+        <div class="marquee-container flex-1">
+            <div class="marquee-content font-mono text-[10px] text-slate-400 py-1" id="tickerContent">
+                <span class="mx-4">Connecting to data feed...</span>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        const API = window.location.origin;
+        let map, predictions = {}, layers = {}, selectedId = null;
+        let rippleMarkers = {};
+
+        document.addEventListener('DOMContentLoaded', () => {
+            initMap();
+            loadData();
+            startClock();
+            initWebSocket();
+        });
+
+        function initMap() {
+            map = L.map('map', { center: [10.8505, 76.2711], zoom: 8, zoomControl: false });
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; CARTO', maxZoom: 19 }).addTo(map);
+            map.on('mousemove', e => document.getElementById('cursorCoords').textContent = `${e.latlng.lat.toFixed(4)}°N, ${e.latlng.lng.toFixed(4)}°E`);
+        }
+
+        async function loadData() {
+            try {
+                const [taluks, preds] = await Promise.all([
+                    fetch(`${API}/api/taluks`).then(r => r.json()),
+                    fetch(`${API}/api/predictions`).then(r => r.json())
+                ]);
+                renderPolygons(taluks);
+                updatePredictions(preds);
+            } catch (e) { console.error('Load error:', e); }
+        }
+
+        function renderPolygons(data) {
+            layers = {};
+            data.features.forEach(f => {
+                const props = f.properties;
+                const layer = L.geoJSON(f, {
+                    style: { fillColor: '#374151', fillOpacity: 0.5, color: '#4b5563', weight: 1 }
+                });
+                layer.on('click', () => selectZone(props.taluk_id));
+                layer.addTo(map);
+                layers[props.taluk_id] = layer;
+            });
+            document.getElementById('zonesLoaded').textContent = data.features.length;
+        }
+
+        function updatePredictions(data) {
+            if (data.predictions) {
+                data.predictions.forEach(p => {
+                    try {
+                        predictions[p.taluk_id] = p;
+                        if (layers[p.taluk_id]) {
+                            const layer = layers[p.taluk_id];
+                            layer.setStyle({ fillColor: p.color });
+
+                            if (typeof layer.getElement === 'function') {
+                                const el = layer.getElement();
+                                if (el) {
+                                    if (p.risk_level === 'HIGH') {
+                                        // AGGRESSIVE BLINK
+                                        L.DomUtil.addClass(el, 'danger-zone-blink');
+                                        if (typeof layer.bringToFront === 'function') layer.bringToFront();
+
+                                        // RIPPLE
+                                        if (!rippleMarkers[p.taluk_id]) {
+                                            const center = layer.getBounds().getCenter();
+                                            const icon = L.divIcon({ className: 'pulse-marker', iconSize: [60, 60], iconAnchor: [30, 30] });
+                                            rippleMarkers[p.taluk_id] = L.marker(center, { icon: icon, interactive: false }).addTo(map);
+                                        }
+                                    } else {
+                                        L.DomUtil.removeClass(el, 'danger-zone-blink');
+                                        if (rippleMarkers[p.taluk_id]) {
+                                            map.removeLayer(rippleMarkers[p.taluk_id]);
+                                            delete rippleMarkers[p.taluk_id];
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e) { console.warn(e); }
+                });
+            }
+            if (selectedId && predictions[selectedId]) selectZone(selectedId); // Refresh selected
+        }
+
+        function selectZone(id) {
+            if (selectedId && layers[selectedId] && layers[selectedId].getElement()) {
+                // Check if it's HIGH risk, if not remove highlight. If High risk, the blink class handles it.
+                // Actually, blink class overrides typical highlighting.
+            }
+            selectedId = id;
+            const p = predictions[id];
+            if (!p) return;
+
+            const prob = p.probability * 100;
+            const col = p.color;
+
+            document.getElementById('rpTitle').textContent = p.taluk_name;
+            document.getElementById('rpBadges').innerHTML = `<span style="color:${col}" class="border px-2 rounded font-bold">${p.risk_level}</span>`;
+
+            const circumference = 2 * Math.PI * 48;
+            document.getElementById('rpGaugeCircle').style.strokeDashoffset = circumference * (1 - p.probability);
+            document.getElementById('rpGaugeCircle').style.stroke = col;
+            document.getElementById('rpGaugeVal').textContent = prob.toFixed(1) + '%';
+            document.getElementById('rpGaugeLabel').textContent = p.risk_level;
+
+            document.getElementById('rpProfile').innerHTML = `
+                <div class="absolute top-0 left-0 w-1 h-full" style="background:${col}"></div>
+                <div class="pl-3">
+                    <p>RAINFALL: ${p.rain7.toFixed(1)}mm</p>
+                    <p>SLOPE: ${p.slope.toFixed(1)}°</p>
+                    <p>DEM: ${p.dem.toFixed(0)}m</p>
+                </div>`;
+        }
+
+        function startClock() {
+            setInterval(() => {
+                document.getElementById('clockIST').textContent = 'IST: ' + new Date().toLocaleTimeString('en-IN', { hour12: false, timeZone: 'Asia/Kolkata' });
+            }, 1000);
+        }
+
+        function initWebSocket() {
+            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const ws = new WebSocket(`${proto}//${location.host}/ws`);
+            ws.onmessage = (e) => updatePredictions(JSON.parse(e.data));
+            ws.onclose = () => setTimeout(initWebSocket, 3000);
+        }
+    </script>
+</body>
+
+</html>

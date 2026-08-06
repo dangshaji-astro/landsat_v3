@@ -1,0 +1,1088 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Landsat-AI · Kerala Landslide Intelligence</title>
+    <meta name="description" content="Real-time AI-powered landslide risk monitoring system for Kerala using satellite data, physics engine, and machine learning.">
+
+    <!-- MapLibre GL JS v3 — 3D WebGL Terrain -->
+    <script src='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js'></script>
+    <link href='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css' rel='stylesheet' />
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --bg-deep:      #121316;
+            --bg-panel:     rgba(24, 25, 29, 0.72);
+            --bg-card:      rgba(30, 31, 37, 0.65);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --coral:        #ff6b4a;
+            --coral-glow:   rgba(255, 107, 74, 0.14);
+            --coral-border: rgba(255, 107, 74, 0.30);
+            --text-1:       #e6e6e8;
+            --text-2:       #9c9ca4;
+            --text-3:       #63636e;
+            --risk-h:       #f85149;
+            --risk-m:       #e3b341;
+            --risk-l:       #3fb950;
+            --panel-w:      290px;
+            --nav-h:        58px;
+            --bottom-h:     160px;
+            --radius-lg:    16px;
+            --radius-md:    12px;
+            --shadow-soft:  0 10px 30px rgba(0, 0, 0, 0.25);
+        }
+
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background: var(--bg-deep); color: var(--text-1);
+            height: 100vh; overflow: hidden;
+        }
+
+        /* ── MAP ── */
+        #map { position: fixed; inset: 0; z-index: 0; }
+
+        /* ── LOADING ── */
+        #loading {
+            position: fixed; inset: 0; z-index: 600;
+            background: var(--bg-deep);
+            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+            transition: opacity 0.5s;
+        }
+        #loading.out { opacity: 0; pointer-events: none; }
+        .ld-logo { font-size: 22px; font-weight: 700; letter-spacing: .12em; color: var(--coral); text-transform: uppercase; }
+        .ld-sub  { font-size: 11px; color: var(--text-3); }
+        .ld-track { width: 200px; height: 3px; background: rgba(255,255,255,.08); border-radius: 2px; overflow: hidden; }
+        .ld-fill  { height: 100%; background: var(--coral); border-radius: 2px; animation: ldprog 2.8s ease forwards; }
+        @keyframes ldprog { 0%{width:0%} 60%{width:75%} 100%{width:100%} }
+        .ld-msg { font-size: 11px; color: var(--text-3); }
+
+        /* ── TOP NAV (FROSTED GLASS) ── */
+        #topnav {
+            position: fixed; top: 12px; left: 16px; right: 16px; height: var(--nav-h); z-index: 100;
+            background: var(--bg-panel); border: 1px solid var(--glass-border);
+            border-radius: var(--radius-lg); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+            box-shadow: var(--shadow-soft);
+            display: flex; align-items: center; padding: 0 20px; gap: 24px;
+        }
+        .nav-logo { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 700; color: var(--text-1); letter-spacing: .04em; }
+        .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--coral); box-shadow: 0 0 10px var(--coral); animation: blink 1.8s ease-in-out infinite; }
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.35} }
+        .nav-div { width: 1px; height: 22px; background: var(--glass-border); }
+        .nav-stats { display: flex; gap: 24px; flex: 1; }
+        .ns { display: flex; flex-direction: column; }
+        .ns-l { font-size: 10px; font-weight: 500; color: var(--text-3); text-transform: uppercase; letter-spacing: .05em; }
+        .ns-v { font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 600; color: var(--text-1); }
+        .ns-v.d { color: var(--risk-h); }
+        .ns-v.w { color: var(--risk-m); }
+        .ns-v.s { color: var(--risk-l); }
+        .nav-right { display: flex; align-items: center; gap: 10px; }
+        .nbtn {
+            padding: 7px 15px; border: 1px solid var(--coral-border); border-radius: var(--radius-md);
+            background: var(--coral-glow); color: var(--coral); font-size: 12px; font-weight: 600;
+            cursor: pointer; transition: all .2s; font-family: inherit;
+        }
+        .nbtn:hover { background: rgba(255, 107, 74, 0.24); border-color: var(--coral); }
+        .nav-time { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--text-2); }
+
+        /* ── PANEL COMMON (WARM CHARCOAL FROSTED GLASS) ── */
+        .panel {
+            position: fixed; top: calc(var(--nav-h) + 24px); bottom: calc(var(--bottom-h) + 24px); z-index: 90;
+            background: var(--bg-panel); border: 1px solid var(--glass-border);
+            border-radius: var(--radius-lg); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+            box-shadow: var(--shadow-soft);
+            display: flex; flex-direction: column; transition: transform .3s ease; overflow: hidden;
+        }
+        .ph { padding: 16px 18px 12px; border-bottom: 1px solid var(--glass-border); flex-shrink: 0; }
+        .ph-title { font-size: 15px; font-weight: 700; color: var(--text-1); margin-bottom: 4px; }
+        .ph-sub { font-size: 11px; color: var(--text-3); }
+
+        /* ── LEFT PANEL ── */
+        #lp { left: 16px; width: var(--panel-w); }
+        #lp.h { transform: translateX(calc(-100% - 20px)); }
+        .search {
+            width: 100%; background: rgba(0, 0, 0, 0.25); border: 1px solid var(--glass-border);
+            border-radius: 10px; padding: 8px 12px; color: var(--text-1); font-size: 12px;
+            font-family: inherit; outline: none; transition: border-color .18s; margin-top: 8px;
+        }
+        .search::placeholder { color: var(--text-3); }
+        .search:focus { border-color: var(--coral-border); }
+        .zlist { flex: 1; overflow-y: auto; padding: 6px 0; }
+        .zlist::-webkit-scrollbar { width: 4px; }
+        .zlist::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 2px; }
+        .zi {
+            display: flex; align-items: center; gap: 12px; padding: 10px 18px;
+            cursor: pointer; transition: background .15s; border-bottom: 1px solid rgba(255,255,255,.03);
+        }
+        .zi:hover { background: rgba(255,255,255,.04); }
+        .zdot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+        .zinfo { flex: 1; min-width: 0; }
+        .zname { font-size: 12px; font-weight: 600; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .zsub  { font-size: 10px; color: var(--text-3); font-family: 'JetBrains Mono', monospace; margin-top: 2px; }
+        .zprob { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600; }
+
+        /* ── RIGHT PANEL (RIGHT SIDE BAR) ── */
+        #rp { right: 16px; width: 320px; }
+        #rp.h { transform: translateX(calc(100% + 20px)); }
+        .alist { flex: 1; overflow-y: auto; padding: 8px 12px; display: flex; flex-direction: column; gap: 8px; }
+        .alist::-webkit-scrollbar { width: 4px; }
+        .alist::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 2px; }
+        .ai-card {
+            padding: 14px 16px; background: var(--bg-card); border: 1px solid var(--glass-border);
+            border-radius: var(--radius-md); cursor: pointer; transition: all .18s;
+        }
+        .ai-card:hover { background: rgba(40, 42, 50, 0.75); border-color: rgba(255,255,255,.15); }
+        .ai-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+        .badge {
+            padding: 3px 8px; border-radius: 6px; font-size: 9px; font-weight: 700;
+            letter-spacing: .06em; text-transform: uppercase;
+        }
+        .badge.h { background: rgba(248, 81, 73, 0.18); color: var(--risk-h); border: 1px solid rgba(248, 81, 73, 0.3); }
+        .badge.m { background: rgba(227, 179, 65, 0.18); color: var(--risk-m); border: 1px solid rgba(227, 179, 65, 0.3); }
+        .aname { font-size: 13px; font-weight: 600; color: var(--text-1); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .agrid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; }
+        .arow  { font-size: 10px; color: var(--text-3); }
+        .arow span { font-family: 'JetBrains Mono', monospace; color: var(--text-1); font-weight: 500; }
+
+        /* ── BOTTOM PANEL ── */
+        #bp {
+            position: fixed; bottom: 12px; left: 16px; right: 16px; height: calc(var(--bottom-h) - 12px); z-index: 90;
+            background: var(--bg-panel); border: 1px solid var(--glass-border);
+            border-radius: var(--radius-lg); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+            box-shadow: var(--shadow-soft); display: flex; align-items: stretch; overflow: hidden;
+        }
+        .bsec { flex: 1; padding: 16px 20px; border-right: 1px solid var(--glass-border); display: flex; flex-direction: column; gap: 4px; }
+        .bsec:last-child { border-right: none; }
+        .bl { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--text-3); }
+        .bv { font-family: 'JetBrains Mono', monospace; font-size: 26px; font-weight: 700; line-height: 1; margin-top: 2px; }
+        .bs { font-size: 10px; color: var(--text-3); }
+        .bars { display: flex; align-items: flex-end; gap: 3px; flex: 1; margin-top: 6px; }
+        .bar  { flex: 1; border-radius: 3px 3px 0 0; min-height: 3px; }
+        .rspark { display: flex; align-items: flex-end; gap: 3px; flex: 1; margin-top: 6px; }
+        .rsb { flex: 1; background: rgba(255, 107, 74, 0.4); border-radius: 3px 3px 0 0; min-height: 3px; }
+
+        /* ── ZONE POPUP CARD (HUD) ── */
+        #popup {
+            position: fixed; z-index: 200; width: 320px;
+            background: var(--bg-panel); border: 1px solid var(--glass-border);
+            border-radius: var(--radius-lg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            box-shadow: var(--shadow-soft); display: none; overflow: visible; padding: 18px 20px;
+        }
+        .pop-hd-hud {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-bottom: 14px; border-bottom: 1px solid var(--glass-border); padding-bottom: 10px;
+        }
+        .pop-name-hud { font-size: 15px; font-weight: 700; color: var(--text-1); }
+        .pop-sub-hud { font-size: 11px; color: var(--coral); font-weight: 600; margin-top: 2px; }
+        .pop-x-hud { cursor: pointer; color: var(--text-3); font-size: 14px; transition: color .18s; }
+        .pop-x-hud:hover { color: var(--text-1); }
+        .pop-grid-hud { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
+        .pm-hud { display: flex; flex-direction: column; }
+        .pm-l-hud { font-size: 10px; color: var(--text-3); margin-bottom: 3px; }
+        .pm-v-hud { font-size: 12px; font-weight: 600; font-family: 'JetBrains Mono', monospace; color: var(--text-1); }
+        .pm-v-hud.coral { color: var(--coral); }
+        .pop-meter-container { margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
+        .pop-meter-label { font-size: 12px; font-weight: 700; font-family: 'JetBrains Mono', monospace; color: var(--coral); width: 45px; }
+        .pop-meter-ticks { flex: 1; display: flex; gap: 3px; align-items: center; }
+        .tick { width: 4px; height: 14px; background: rgba(255,255,255,.08); border-radius: 2px; transition: background .3s; }
+        .tick.active { background: var(--coral); }
+        .tick.high { background: var(--risk-h); }
+        .pop-acts-hud { display: flex; gap: 10px; }
+        .pbtn-hud {
+            display: inline-flex; align-items: center; justify-content: space-between;
+            padding: 9px 16px; border: 1px solid var(--coral-border); border-radius: var(--radius-md);
+            background: var(--coral-glow); color: var(--coral);
+            font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s; font-family: inherit;
+        }
+        .pbtn-hud:hover { background: rgba(255, 107, 74, 0.24); border-color: var(--coral); }
+
+        /* ── MAP CONTROLS ── */
+        .ctrl-group { position: fixed; z-index: 95; display: flex; flex-direction: column; gap: 6px; }
+        #ctrl-zoom   { bottom: calc(var(--bottom-h) + 20px); right: 80px; }
+        #ctrl-extra  { bottom: calc(var(--bottom-h) + 20px); right: 126px; }
+        .ctrl-btn {
+            width: 38px; height: 38px; border: 1px solid var(--glass-border); border-radius: var(--radius-md);
+            background: var(--bg-panel); backdrop-filter: blur(10px); color: var(--text-2);
+            font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+            transition: all .18s; box-shadow: var(--shadow-soft);
+        }
+        .ctrl-btn:hover, .ctrl-btn.on { color: var(--coral); border-color: var(--coral-border); background: var(--coral-glow); }
+
+        /* ── LEGEND ── */
+        #legend {
+            position: fixed; left: calc(var(--panel-w) + 32px); bottom: calc(var(--bottom-h) + 20px); z-index: 95;
+            background: var(--bg-panel); border: 1px solid var(--glass-border); border-radius: var(--radius-md);
+            backdrop-filter: blur(10px); padding: 10px 14px; box-shadow: var(--shadow-soft);
+        }
+        .leg-t { font-size: 10px; font-weight: 600; text-transform: uppercase; color: var(--text-3); margin-bottom: 8px; }
+        .leg-r { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+        .leg-r:last-child { margin-bottom: 0; }
+        .leg-s { width: 10px; height: 10px; border-radius: 3px; }
+        .leg-lbl { font-size: 11px; color: var(--text-2); }
+
+        /* ── FLOATING CORNER CIRCLE BUTTON FOR AI (FAB) ── */
+        #ai-fab {
+            position: fixed; bottom: calc(var(--bottom-h) + 20px); right: 20px; z-index: 160;
+            width: 52px; height: 52px; border-radius: 50%;
+            background: var(--bg-panel); border: 1.5px solid var(--coral-border);
+            backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.4), 0 0 15px rgba(255, 107, 74, 0.2);
+            color: var(--coral); font-size: 22px; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            transition: all .25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        #ai-fab:hover {
+            transform: scale(1.1); background: var(--coral-glow); border-color: var(--coral);
+            box-shadow: 0 10px 30px rgba(255, 107, 74, 0.35);
+        }
+
+        /* ── MOVABLE / DRAGGABLE AI EXPERT PANEL ── */
+        #aichat {
+            position: fixed; bottom: calc(var(--bottom-h) + 20px); right: 84px;
+            width: 340px; height: 430px; z-index: 250;
+            background: var(--bg-panel); border: 1px solid var(--glass-border);
+            border-radius: var(--radius-lg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            box-shadow: 0 15px 45px rgba(0, 0, 0, 0.45);
+            display: none; flex-direction: column; overflow: hidden;
+        }
+        #aichat.vis { display: flex; }
+        .aich-hd {
+            padding: 14px 16px; border-bottom: 1px solid var(--glass-border);
+            display: flex; align-items: center; gap: 10px; cursor: move; user-select: none;
+            background: rgba(255, 255, 255, 0.02);
+        }
+        .aich-t { font-size: 13px; font-weight: 700; color: var(--text-1); flex: 1; }
+        .aich-drag-hint { font-size: 10px; color: var(--text-3); margin-right: 8px; }
+        .aich-x { font-size: 14px; color: var(--text-3); cursor: pointer; transition: color .18s; }
+        .aich-x:hover { color: var(--text-1); }
+        .aich-msgs { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+        .aich-msgs::-webkit-scrollbar { width: 4px; }
+        .aich-msgs::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 2px; }
+        .amsg {
+            background: var(--bg-card); border: 1px solid var(--glass-border);
+            border-radius: var(--radius-md); padding: 10px 14px; font-size: 12px; line-height: 1.6; color: var(--text-2);
+        }
+        .amsg.u { background: var(--coral-glow); border-color: var(--coral-border); color: var(--text-1); }
+        .aich-in { display: flex; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--glass-border); }
+        .ainput {
+            flex: 1; background: rgba(0,0,0,.2); border: 1px solid var(--glass-border); border-radius: var(--radius-md);
+            padding: 8px 12px; color: var(--text-1); font-size: 12px; font-family: inherit; outline: none;
+        }
+        .ainput:focus { border-color: var(--coral-border); }
+        .asend {
+            padding: 8px 14px; background: var(--coral-glow); border: 1px solid var(--coral-border);
+            border-radius: var(--radius-md); color: var(--coral); font-size: 12px; font-weight: 600;
+            cursor: pointer; transition: all .18s; font-family: inherit;
+        }
+        .asend:hover { background: rgba(255, 107, 74, 0.24); border-color: var(--coral); }
+
+        /* ── HIDE MAPLIBRE DEFAULT CONTROLS ── */
+        .maplibregl-ctrl-bottom-left, .maplibregl-ctrl-bottom-right, .maplibregl-ctrl-top-right { display: none !important; }
+
+        @media (max-width: 860px) { #lp, #rp { display: none; } }
+    </style>
+</head>
+<body>
+
+<!-- LOADING -->
+<div id="loading">
+    <div class="ld-logo">⚡ Landsat-AI</div>
+    <div class="ld-sub">Kerala Landslide Intelligence System</div>
+    <div class="ld-track"><div class="ld-fill"></div></div>
+    <div class="ld-msg" id="ldmsg">Initializing 3D terrain engine...</div>
+</div>
+
+<!-- MAP -->
+<div id="map"></div>
+
+<!-- TOP NAV -->
+<nav id="topnav">
+    <div class="nav-logo"><div class="pulse"></div>LANDSAT-AI</div>
+    <div class="nav-div"></div>
+    <div class="nav-stats">
+        <div class="ns"><div class="ns-l">Zones</div><div class="ns-v" id="nt">—</div></div>
+        <div class="ns"><div class="ns-l">High Risk</div><div class="ns-v d" id="nh">—</div></div>
+        <div class="ns"><div class="ns-l">Medium Risk</div><div class="ns-v w" id="nm">—</div></div>
+        <div class="ns"><div class="ns-l">Low Risk</div><div class="ns-v s" id="nl">—</div></div>
+        <div class="ns"><div class="ns-l">Updated</div><div class="ns-v" id="nu">—</div></div>
+    </div>
+    <div class="nav-right">
+        <button class="nbtn" id="rbtn" onclick="doRefresh()">↻ Refresh Telemetry</button>
+        <div class="nav-time" id="clk">—</div>
+    </div>
+</nav>
+
+<!-- LEFT PANEL -->
+<div class="panel" id="lp">
+    <div class="ph">
+        <div class="ph-title">Zone Monitor</div>
+        <div class="ph-sub">Administrative districts & sub-grids</div>
+        <input class="search" id="srch" placeholder="Search zone..." oninput="filterZones(this.value)">
+    </div>
+    <div class="zlist" id="zlist"></div>
+</div>
+
+<!-- RIGHT SIDE BAR PANEL -->
+<div class="panel" id="rp">
+    <div class="ph">
+        <div class="ph-title">Active Alerts</div>
+        <div class="ph-sub">High & medium risk warning zones</div>
+    </div>
+    <div class="alist" id="alist"></div>
+</div>
+
+<!-- BOTTOM PANEL -->
+<div id="bp">
+    <div class="bsec">
+        <div class="bl">Active Monitoring Zones</div>
+        <div class="bv" id="bv-total" style="color: var(--coral);">—</div>
+        <div class="bs">Kerala State Grid</div>
+        <div class="bars" id="bars"></div>
+    </div>
+    <div class="bsec" style="flex: 2.2;">
+        <div class="bl">Risk Distribution · Alert Severity</div>
+        <div class="bars" id="topbars" style="margin-top: 8px; gap: 3px;"></div>
+    </div>
+    <div class="bsec">
+        <div class="bl">7-Day Rainfall Accumulation</div>
+        <div class="bv" id="bv-rain" style="color: #60a5fa;">—</div>
+        <div class="bs">avg mm across alert zones</div>
+        <div class="rspark" id="rspark"></div>
+    </div>
+    <div class="bsec">
+        <div class="bl">Peak Risk Probability</div>
+        <div class="bv" id="bv-prob" style="color: var(--risk-h);">—</div>
+        <div class="bs" id="bv-zone" style="margin-top: 2px;">—</div>
+    </div>
+</div>
+
+<!-- ZONE POPUP CARD (HUD) -->
+<div id="popup">
+    <div class="pop-hd-hud">
+        <div>
+            <div class="pop-name-hud" id="pname">Wayanad, Kerala</div>
+            <div class="pop-sub-hud" id="prl">HIGH RISK · 85% PROBABILITY</div>
+        </div>
+        <div class="pop-x-hud" onclick="closePopup()">✕</div>
+    </div>
+
+    <!-- 4 Column Metrics Grid -->
+    <div class="pop-grid-hud">
+        <div class="pm-hud">
+            <span class="pm-l-hud">Slope</span>
+            <span class="pm-v-hud coral" id="pslope">34.5°</span>
+        </div>
+        <div class="pm-hud">
+            <span class="pm-l-hud">Elevation</span>
+            <span class="pm-v-hud" id="pdem">820m</span>
+        </div>
+        <div class="pm-hud">
+            <span class="pm-l-hud">Rain 7D</span>
+            <span class="pm-v-hud" id="prain">142mm</span>
+        </div>
+        <div class="pm-hud">
+            <span class="pm-l-hud">Soil</span>
+            <span class="pm-v-hud" id="psoil">Laterite</span>
+        </div>
+    </div>
+
+    <!-- Dotted Progress Ticks Bar -->
+    <div class="pop-meter-container">
+        <div class="pop-meter-label" id="ppct">85%</div>
+        <div class="pop-meter-ticks" id="pticks">
+            <!-- Populated via JS -->
+        </div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="pop-acts-hud">
+        <button class="pbtn-hud" onclick="openAIForZone()" style="flex: 1;">
+            <span>Consult AI Expert</span> <span>➔</span>
+        </button>
+    </div>
+</div>
+
+<!-- LEGEND -->
+<div id="legend">
+    <div class="leg-t">Risk Classification</div>
+    <div class="leg-r"><div class="leg-s" style="background: var(--risk-h);"></div><div class="leg-lbl">High (&gt;65%)</div></div>
+    <div class="leg-r"><div class="leg-s" style="background: var(--risk-m);"></div><div class="leg-lbl">Medium (40–65%)</div></div>
+    <div class="leg-r"><div class="leg-s" style="background: var(--risk-l);"></div><div class="leg-lbl">Low (&lt;40%)</div></div>
+</div>
+
+<!-- MAP CONTROLS -->
+<div class="ctrl-group" id="ctrl-zoom">
+    <button class="ctrl-btn" onclick="map.zoomIn()" title="Zoom in">+</button>
+    <button class="ctrl-btn" onclick="map.zoomOut()" title="Zoom out">−</button>
+</div>
+<div class="ctrl-group" id="ctrl-extra">
+    <button class="ctrl-btn" id="t3d" onclick="toggle3D()" title="Toggle 3D Terrain">⛰</button>
+    <button class="ctrl-btn" id="tgrid" onclick="toggleGridMode()" title="Toggle 1km Sub-Grid Mesh">🏁</button>
+    <button class="ctrl-btn" onclick="resetView()" title="Reset View">⊙</button>
+</div>
+
+<!-- FLOATING CORNER CIRCLE BUTTON FOR AI (FAB) -->
+<button id="ai-fab" onclick="toggleAI()" title="Open AI Expert Agent">🤖</button>
+
+<!-- MOVABLE / DRAGGABLE AI EXPERT PANEL -->
+<div id="aichat">
+    <div class="aich-hd" id="aichat-handle">
+        <span>🤖</span>
+        <div class="aich-t">AI Geologist Expert</div>
+        <span class="aich-drag-hint">⋮⋮ drag</span>
+        <div class="aich-x" onclick="toggleAI()">✕</div>
+    </div>
+    <div class="aich-msgs" id="aichat-msgs">
+        <div class="amsg">Hello! I'm Dr. Rajan, your AI Geologist trained on Kerala geological data. Select any zone on the map to ask questions about slope stability, rainfall, and Factor of Safety.</div>
+    </div>
+    <div class="aich-in">
+        <input class="ainput" id="aiinput" placeholder="Ask about landslides or risk..." onkeypress="if(event.key==='Enter') sendAI()">
+        <button class="asend" onclick="sendAI()">Send</button>
+    </div>
+</div>
+
+<script>
+// ── STATE ─────────────────────────────────────
+let map, predictions = {}, terrain3D = false, selectedId = null;
+let allPreds = [];
+let gridMode = false, subgridLoaded = false, subgridGeoJSON = null, subgridPredictions = {};
+
+// ── CLOCK ─────────────────────────────────────
+(function tick() {
+    document.getElementById('clk').textContent = new Date().toLocaleTimeString('en-IN', {hour12: false});
+    setTimeout(tick, 1000);
+})();
+
+// ── MAP INIT ──────────────────────────────────
+function initMap() {
+    map = new maplibregl.Map({
+        container: 'map',
+        style: {
+            version: 8,
+            glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+            sources: {
+                satellite: {
+                    type: 'raster',
+                    tiles: ['https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}'],
+                    tileSize: 256, attribution: 'Google Satellite HD', maxzoom: 20
+                },
+                dem: {
+                    type: 'raster-dem',
+                    tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
+                    tileSize: 256, encoding: 'terrarium', minzoom: 0, maxzoom: 15
+                }
+            },
+
+            layers: [
+                {
+                    id: 'sat', type: 'raster', source: 'satellite',
+                    paint: {
+                        'raster-brightness-min': 0, 'raster-brightness-max': 0.85,
+                        'raster-saturation': -0.20, 'raster-contrast': 0.12
+                    }
+                },
+                {
+                    id: 'hillshade', type: 'hillshade', source: 'dem',
+                    paint: {
+                        'hillshade-shadow-color': '#101216',
+                        'hillshade-highlight-color': '#282b34',
+                        'hillshade-accent-color': '#ff6b4a',
+                        'hillshade-exaggeration': 0.40,
+                        'hillshade-illumination-anchor': 'viewport'
+                    }
+                }
+            ]
+        },
+        center: [76.5, 10.5],
+        zoom: 7.2,
+        pitch: 45,
+        bearing: -10,
+        maxZoom: 16, minZoom: 5
+    });
+
+    map.on('load', () => {
+        setLdMsg('Loading Kerala terrain...');
+        loadData();
+    });
+
+    map.on('click', 'risk-fill', e => {
+        const id = e.features[0].properties.taluk_id;
+        showPopup(id, e.point);
+    });
+
+    map.on('mouseenter', 'risk-fill', () => { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', 'risk-fill', () => { map.getCanvas().style.cursor = ''; });
+
+    map.on('click', 'subgrid-fill', e => {
+        const cellId = e.features[0].properties.cell_id;
+        showSubgridPopup(cellId, e.point, e.features[0].properties);
+    });
+
+    map.on('mouseenter', 'subgrid-fill', () => { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', 'subgrid-fill', () => { map.getCanvas().style.cursor = ''; });
+}
+
+// ── 3D TERRAIN ────────────────────────────────
+function toggle3D() {
+    terrain3D = !terrain3D;
+    const btn = document.getElementById('t3d');
+    if (terrain3D) {
+        map.setTerrain({ source: 'dem', exaggeration: 2.5 });
+        map.easeTo({ pitch: 60, bearing: -15, duration: 900 });
+        btn.classList.add('on');
+    } else {
+        map.setTerrain(null);
+        map.easeTo({ pitch: 0, bearing: 0, duration: 900 });
+        btn.classList.remove('on');
+    }
+}
+
+function resetView() {
+    map.flyTo({ center: [76.5, 10.5], zoom: 7.2, pitch: 45, bearing: -10, speed: 1.4 });
+}
+
+// ── 1KM SUB-GRID MODE ─────────────────────────
+async function toggleGridMode() {
+    gridMode = !gridMode;
+    const btn = document.getElementById('tgrid');
+
+    if (gridMode) {
+        btn.classList.add('on');
+        if (!subgridLoaded) {
+            btn.textContent = '⏳';
+            await loadSubgridData();
+            btn.textContent = '🏁';
+        }
+        if (map.getLayer('subgrid-fill')) {
+            map.setLayoutProperty('subgrid-fill', 'visibility', 'visible');
+            map.setLayoutProperty('subgrid-line', 'visibility', 'visible');
+        }
+        if (map.getLayer('risk-fill')) {
+            map.setLayoutProperty('risk-fill', 'visibility', 'none');
+            map.setLayoutProperty('risk-line', 'visibility', 'none');
+        }
+    } else {
+        btn.classList.remove('on');
+        if (map.getLayer('subgrid-fill')) {
+            map.setLayoutProperty('subgrid-fill', 'visibility', 'none');
+            map.setLayoutProperty('subgrid-line', 'visibility', 'none');
+        }
+        if (map.getLayer('risk-fill')) {
+            map.setLayoutProperty('risk-fill', 'visibility', 'visible');
+            map.setLayoutProperty('risk-line', 'visibility', 'visible');
+        }
+    }
+}
+
+async function loadSubgridData() {
+    try {
+        const [sgRes, prRes] = await Promise.all([
+            fetch('/api/subgrid'),
+            fetch('/api/subgrid-predictions')
+        ]);
+        subgridGeoJSON = await sgRes.json();
+        const pdata = await prRes.json();
+        subgridPredictions = pdata.predictions || {};
+
+        buildSubgridLayers(subgridGeoJSON, subgridPredictions);
+        subgridLoaded = true;
+    } catch (e) {
+        console.error('Error loading subgrid data:', e);
+    }
+}
+
+function buildSubgridLayers(geoData, predMap) {
+    if (!geoData?.features) return;
+
+    const enriched = {
+        ...geoData,
+        features: geoData.features.map(f => {
+            const cellId = f.properties.cell_id;
+            const p = predMap[cellId] || {};
+            return {
+                ...f,
+                properties: {
+                    ...f.properties,
+                    cell_id: cellId,
+                    risk_level: p.risk_level || 'LOW',
+                    probability: (p.probability || 0) * 100,
+                    risk_color: p.color || '#3fb950',
+                    rain7: p.rain7 || 0,
+                    slope: p.slope || f.properties.slope_avg || 0,
+                    dem: p.dem || f.properties.dem_avg || 0,
+                    soil_texture: p.soil_type || 'Laterite'
+                }
+            };
+        })
+    };
+
+    ['subgrid-fill', 'subgrid-line'].forEach(l => { if (map.getLayer(l)) map.removeLayer(l); });
+    if (map.getSource('subgrid')) map.removeSource('subgrid');
+
+    map.addSource('subgrid', { type: 'geojson', data: enriched });
+
+    map.addLayer({
+        id: 'subgrid-fill', type: 'fill', source: 'subgrid',
+        layout: { 'visibility': gridMode ? 'visible' : 'none' },
+        paint: {
+            'fill-color': ['get', 'risk_color'],
+            'fill-opacity': ['case',
+                ['==', ['get', 'risk_level'], 'HIGH'], 0.65,
+                ['==', ['get', 'risk_level'], 'MEDIUM'], 0.45,
+                0.25]
+        }
+    });
+
+    map.addLayer({
+        id: 'subgrid-line', type: 'line', source: 'subgrid',
+        layout: { 'visibility': gridMode ? 'visible' : 'none' },
+        paint: {
+            'line-color': ['get', 'risk_color'],
+            'line-width': 0.3,
+            'line-opacity': 0.5
+        }
+    });
+}
+
+function showSubgridPopup(cellId, point, props) {
+    const p = subgridPredictions[cellId] || props;
+    selectedId = cellId;
+    const pct = Math.round(p.probability || props.probability || 0);
+    const clr = p.color || props.risk_color || '#3fb950';
+    const isHigh = (p.risk_level || props.risk_level) === 'HIGH';
+
+    document.getElementById('pname').textContent = `1km Grid Cell ${cellId}`;
+    document.getElementById('prl').textContent = `${p.risk_level || props.risk_level || 'LOW'} RISK · ${pct}% PROBABILITY`;
+    document.getElementById('prl').style.color = clr;
+
+    document.getElementById('pslope').textContent = (p.slope || props.slope || 0).toFixed(1) + '°';
+    document.getElementById('pdem').textContent = (p.dem || props.dem || 0).toFixed(0) + 'm';
+    document.getElementById('prain').textContent = (p.rain7 || props.rain7 || 0).toFixed(1) + 'mm';
+    document.getElementById('psoil').textContent = p.soil_type || props.soil_texture || 'Laterite';
+    document.getElementById('ppct').textContent = pct + '%';
+
+    const ticksContainer = document.getElementById('pticks');
+    ticksContainer.innerHTML = '';
+    const totalTicks = 25;
+    const activeTicks = Math.round((pct / 100) * totalTicks);
+
+    for (let i = 0; i < totalTicks; i++) {
+        const tick = document.createElement('div');
+        tick.className = 'tick';
+        if (i < activeTicks) {
+            tick.classList.add('active');
+            if (isHigh && i > totalTicks * 0.6) {
+                tick.classList.add('high');
+            }
+        }
+        ticksContainer.appendChild(tick);
+    }
+
+    const pop = document.getElementById('popup');
+    pop.style.display = 'block';
+    const x = Math.min(point.x + 12, window.innerWidth - 350);
+    const y = Math.min(point.y - 10, window.innerHeight - 300);
+    pop.style.left = Math.max(10, x) + 'px';
+    pop.style.top = Math.max(60, y) + 'px';
+}
+
+// ── DATA LOAD ─────────────────────────────────
+async function loadData() {
+    try {
+        setLdMsg('Fetching satellite telemetry...');
+        const [tr, pr, sgPr] = await Promise.all([
+            fetch('/api/taluks'),
+            fetch('/api/predictions'),
+            fetch('/api/subgrid-predictions')
+        ]);
+        const taluks = await tr.json();
+        const pdata  = await pr.json();
+        const sgPdata = await sgPr.json();
+
+        pdata.predictions.forEach(p => { predictions[p.taluk_id] = p; });
+        subgridPredictions = sgPdata.predictions || {};
+        allPreds = pdata.predictions;
+
+        setLdMsg('Rendering risk map...');
+        buildLayers(taluks);
+        updateUI(pdata);
+
+        setTimeout(() => {
+            document.getElementById('loading').classList.add('out');
+            setTimeout(() => document.getElementById('loading').style.display = 'none', 500);
+        }, 700);
+
+        startWS();
+    } catch (e) {
+        setLdMsg('Connection failed — retrying...');
+        setTimeout(loadData, 3000);
+    }
+}
+
+// ── MAP LAYERS ────────────────────────────────
+function buildLayers(taluks) {
+    if (!taluks?.features) return;
+
+    const enriched = {
+        ...taluks,
+        features: taluks.features.map(f => {
+            const p = predictions[f.properties.taluk_id] || {};
+            return { ...f, properties: {
+                ...f.properties,
+                risk_level:   p.risk_level || 'LOW',
+                probability:  (p.probability || 0) * 100,
+                risk_color:   p.color || '#3fb950',
+                rain7:        p.rain7 || 0,
+                slope:        p.slope || 0,
+                dem:          p.dem || 0,
+                soil_texture: p.soil_texture || 'Laterite',
+                taluk_id:     f.properties.taluk_id
+            }};
+        })
+    };
+
+    ['risk-fill','risk-line'].forEach(l => { if (map.getLayer(l)) map.removeLayer(l); });
+    if (map.getSource('risks')) map.removeSource('risks');
+
+    map.addSource('risks', { type: 'geojson', data: enriched });
+
+    map.addLayer({
+        id: 'risk-fill', type: 'fill', source: 'risks',
+        paint: {
+            'fill-color': ['get', 'risk_color'],
+            'fill-opacity': ['case',
+                ['==', ['get', 'risk_level'], 'HIGH'],   0.60,
+                ['==', ['get', 'risk_level'], 'MEDIUM'], 0.40,
+                0.20]
+        }
+    });
+
+    map.addLayer({
+        id: 'risk-line', type: 'line', source: 'risks',
+        paint: {
+            'line-color': ['get', 'risk_color'],
+            'line-width': ['case', ['==', ['get', 'risk_level'], 'HIGH'], 1.2, 0.4],
+            'line-opacity': 0.65
+        }
+    });
+}
+
+// ── UPDATE UI ─────────────────────────────────
+function updateUI(data) {
+    const preds = data.predictions || [];
+    allPreds = preds;
+
+    let high = 0, med = 0, low = 0, rainSum = 0, maxP = 0, maxZ = '';
+
+    preds.forEach(p => {
+        const pct = (p.probability || 0) * 100;
+        if (p.risk_level === 'HIGH') high++;
+        else if (p.risk_level === 'MEDIUM') med++;
+        else low++;
+        rainSum += p.rain7 || 0;
+        if (pct > maxP) { maxP = pct; maxZ = p.taluk_name || ''; }
+    });
+
+    const n = preds.length || 1;
+
+    // Nav
+    document.getElementById('nt').textContent = preds.length;
+    document.getElementById('nh').textContent = high;
+    document.getElementById('nm').textContent = med;
+    document.getElementById('nl').textContent = low;
+    const ts = data.last_update ? new Date(data.last_update).toLocaleTimeString('en-IN') : '—';
+    document.getElementById('nu').textContent = ts;
+
+    // Bottom
+    document.getElementById('bv-total').textContent = preds.length.toLocaleString();
+    document.getElementById('bv-rain').textContent  = (rainSum / n).toFixed(1) + ' mm';
+    document.getElementById('bv-prob').textContent  = maxP.toFixed(1) + '%';
+    document.getElementById('bv-zone').textContent  = maxZ;
+
+    buildBars(preds);
+    buildTopBars(preds);
+    buildRainSpark(preds);
+    buildZoneList(preds);
+    buildAlerts(preds);
+}
+
+// ── BARS ──────────────────────────────────────
+function buildBars(preds) {
+    const c = document.getElementById('bars');
+    c.innerHTML = '';
+    preds.slice().sort((a,b) => (b.probability||0)-(a.probability||0)).slice(0,40).forEach(p => {
+        const el = document.createElement('div');
+        el.className = 'bar';
+        el.style.height = Math.max(3, (p.probability||0)*100*0.65) + 'px';
+        el.style.background = p.color || '#3fb950';
+        el.style.opacity = '0.75';
+        el.title = `${p.taluk_name}: ${((p.probability||0)*100).toFixed(1)}%`;
+        c.appendChild(el);
+    });
+}
+
+function buildTopBars(preds) {
+    const c = document.getElementById('topbars');
+    c.innerHTML = '';
+    const sorted = preds.slice().sort((a,b)=>(b.probability||0)-(a.probability||0)).slice(0,60);
+    const maxP = sorted.length ? (sorted[0].probability||0.001) : 1;
+    sorted.forEach(p => {
+        const el = document.createElement('div');
+        el.className = 'bar';
+        el.style.height = Math.max(4, ((p.probability||0)/maxP)*90) + 'px';
+        el.style.background = p.color || '#3fb950';
+        el.title = `${p.taluk_name}: ${((p.probability||0)*100).toFixed(1)}%`;
+        c.appendChild(el);
+    });
+}
+
+function buildRainSpark(preds) {
+    const c = document.getElementById('rspark');
+    c.innerHTML = '';
+    const hp = preds.filter(p => p.risk_level === 'HIGH' || p.risk_level === 'MEDIUM').slice(0,18);
+    if (!hp.length) return;
+    const mx = Math.max(...hp.map(p => p.rain7||0), 1);
+    hp.forEach(p => {
+        const el = document.createElement('div');
+        el.className = 'rsb';
+        el.style.height = Math.max(4, ((p.rain7||0)/mx)*55) + 'px';
+        el.title = `${p.taluk_name}: ${(p.rain7||0).toFixed(1)}mm`;
+        c.appendChild(el);
+    });
+}
+
+// ── ZONE LIST ─────────────────────────────────
+let _allPreds = [];
+function buildZoneList(preds) {
+    _allPreds = preds.slice().sort((a,b)=>(b.probability||0)-(a.probability||0));
+    renderZoneList(_allPreds);
+}
+
+function renderZoneList(preds) {
+    const c = document.getElementById('zlist');
+    c.innerHTML = '';
+    preds.slice(0,120).forEach(p => {
+        const pct = Math.round((p.probability||0)*100);
+        const clr = p.color || '#3fb950';
+        const d = document.createElement('div');
+        d.className = 'zi';
+        d.innerHTML = `
+            <div class="zdot" style="background:${clr}; box-shadow:0 0 6px ${clr}50;"></div>
+            <div class="zinfo">
+                <div class="zname">${p.taluk_name || p.taluk_id}</div>
+                <div class="zsub">${(p.rain7||0).toFixed(0)}mm · ${(p.slope||0).toFixed(0)}° · ${(p.dem||0).toFixed(0)}m</div>
+            </div>
+            <div class="zprob" style="color:${clr}">${pct}%</div>`;
+        d.onclick = () => flyAndShow(p.taluk_id);
+        c.appendChild(d);
+    });
+}
+
+function filterZones(q) {
+    if (!q) { renderZoneList(_allPreds); return; }
+    renderZoneList(_allPreds.filter(p => (p.taluk_name||'').toLowerCase().includes(q.toLowerCase())));
+}
+
+// ── ALERTS ────────────────────────────────────
+function buildAlerts(preds) {
+    const c = document.getElementById('alist');
+    const alerts = preds.filter(p => p.risk_level === 'HIGH' || p.risk_level === 'MEDIUM')
+                        .sort((a,b)=>(b.probability||0)-(a.probability||0));
+    c.innerHTML = '';
+    if (!alerts.length) {
+        c.innerHTML = '<div style="padding:24px 16px;font-size:12px;color:var(--text-3);text-align:center;">No active risk alerts</div>';
+        return;
+    }
+    alerts.forEach(p => {
+        const pct = Math.round((p.probability||0)*100);
+        const isH = p.risk_level === 'HIGH';
+        const d = document.createElement('div');
+        d.className = 'ai-card';
+        d.innerHTML = `
+            <div class="ai-top">
+                <div class="badge ${isH?'h':'m'}">${p.risk_level}</div>
+                <div class="aname">${p.taluk_name || p.taluk_id}</div>
+            </div>
+            <div class="agrid">
+                <div class="arow">Probability: <span>${pct}%</span></div>
+                <div class="arow">Rain 7D: <span>${(p.rain7||0).toFixed(1)}mm</span></div>
+                <div class="arow">Slope: <span>${(p.slope||0).toFixed(1)}°</span></div>
+                <div class="arow">Elevation: <span>${(p.dem||0).toFixed(0)}m</span></div>
+            </div>`;
+        d.onclick = () => flyAndShow(p.taluk_id);
+        c.appendChild(d);
+    });
+}
+
+// ── POPUP ─────────────────────────────────────
+function flyAndShow(id) {
+    const p = predictions[id]; if (!p) return;
+    map.flyTo({ center: [p.longitude||76.5, p.latitude||10.5], zoom: 10, speed: 1.5 });
+    showPopup(id, { x: window.innerWidth/2, y: window.innerHeight/2 - 130 });
+}
+
+function showPopup(id, point) {
+    const p = predictions[id]; if (!p) return;
+    selectedId = id;
+    const pct = Math.round((p.probability||0)*100);
+    const clr = p.color || '#3fb950';
+    const isHigh = p.risk_level === 'HIGH';
+
+    document.getElementById('pname').textContent = p.taluk_name || id;
+    document.getElementById('prl').textContent   = `${p.risk_level || 'LOW'} RISK · ${pct}% PROBABILITY`;
+    document.getElementById('prl').style.color   = clr;
+
+    document.getElementById('pslope').textContent = (p.slope||0).toFixed(1) + '°';
+    document.getElementById('pdem').textContent   = (p.dem||0).toFixed(0) + 'm';
+    document.getElementById('prain').textContent  = (p.rain7||0).toFixed(1) + 'mm';
+    document.getElementById('psoil').textContent  = p.soil_texture || 'Laterite';
+    document.getElementById('ppct').textContent   = pct + '%';
+
+    // Generate 25 Dotted Progress Ticks
+    const ticksContainer = document.getElementById('pticks');
+    ticksContainer.innerHTML = '';
+    const totalTicks = 25;
+    const activeTicks = Math.round((pct / 100) * totalTicks);
+
+    for (let i = 0; i < totalTicks; i++) {
+        const tick = document.createElement('div');
+        tick.className = 'tick';
+        if (i < activeTicks) {
+            tick.classList.add('active');
+            if (isHigh && i > totalTicks * 0.6) {
+                tick.classList.add('high');
+            }
+        }
+        ticksContainer.appendChild(tick);
+    }
+
+    const pop = document.getElementById('popup');
+    pop.style.display = 'block';
+    const x = Math.min(point.x + 12, window.innerWidth - 350);
+    const y = Math.min(point.y - 10, window.innerHeight - 300);
+    pop.style.left = Math.max(10, x) + 'px';
+    pop.style.top  = Math.max(60, y) + 'px';
+}
+
+function closePopup() { document.getElementById('popup').style.display = 'none'; selectedId = null; }
+
+// ── MOVABLE / DRAGGABLE AI PANEL LOGIC ───────
+const aiPanel = document.getElementById('aichat');
+const aiHandle = document.getElementById('aichat-handle');
+
+let isDragging = false, startX, startY, initialLeft, initialTop;
+
+aiHandle.addEventListener('mousedown', e => {
+    if (e.target.classList.contains('aich-x')) return;
+    isDragging = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    const rect = aiPanel.getBoundingClientRect();
+    initialLeft = rect.left;
+    initialTop = rect.top;
+    aiPanel.style.bottom = 'auto';
+    aiPanel.style.right = 'auto';
+    aiPanel.style.left = initialLeft + 'px';
+    aiPanel.style.top = initialTop + 'px';
+});
+
+document.addEventListener('mousemove', e => {
+    if (!isDragging) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    aiPanel.style.left = Math.max(10, Math.min(window.innerWidth - 350, initialLeft + dx)) + 'px';
+    aiPanel.style.top  = Math.max(10, Math.min(window.innerHeight - 440, initialTop + dy)) + 'px';
+});
+
+document.addEventListener('mouseup', () => { isDragging = false; });
+
+function toggleAI() { aiPanel.classList.toggle('vis'); }
+
+function openAIForZone() {
+    aiPanel.classList.add('vis');
+    if (selectedId) {
+        const p = predictions[selectedId];
+        if (p) appendMsg(`Analyzing: ${p.taluk_name} · ${p.risk_level} · ${Math.round((p.probability||0)*100)}% probability · ${(p.rain7||0).toFixed(1)}mm rainfall · ${(p.slope||0).toFixed(1)}° slope`, false);
+    }
+}
+
+function appendMsg(txt, isUser) {
+    const c = document.getElementById('aichat-msgs');
+    const d = document.createElement('div');
+    d.className = 'amsg' + (isUser ? ' u' : '');
+    d.textContent = txt;
+    c.appendChild(d);
+    c.scrollTop = c.scrollHeight;
+    return d;
+}
+
+async function sendAI() {
+    const inp = document.getElementById('aiinput');
+    const q = inp.value.trim(); if (!q) return;
+    inp.value = '';
+    appendMsg('You: ' + q, true);
+
+    if (!selectedId) { appendMsg('Please select a zone on the map first.', false); return; }
+
+    const loadMsg = appendMsg('Dr. Rajan is analyzing...', false);
+    const p = predictions[selectedId];
+
+    try {
+        const res = await fetch('/api/ask-expert', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ taluk_id: selectedId, lat: p?.latitude||10.5, lon: p?.longitude||76.5, question: q })
+        });
+        const d = await res.json();
+        loadMsg.textContent = 'Dr. Rajan: ' + (d.analysis || 'No response received.');
+    } catch (e) {
+        loadMsg.textContent = 'Error: Could not reach AI Agent. Make sure Ollama is running.';
+    }
+}
+
+// ── WEBSOCKET ─────────────────────────────────
+function startWS() {
+    const ws = new WebSocket(`ws://${location.host}/ws`);
+    ws.onmessage = e => {
+        const msg = JSON.parse(e.data);
+        const talukData = msg.taluks || msg;
+        if (talukData.predictions) {
+            if (Array.isArray(talukData.predictions)) {
+                talukData.predictions.forEach(p => { predictions[p.taluk_id] = p; });
+            }
+            updateUI(talukData);
+            if (map.getSource('risks')) {
+                const src = map.getSource('risks');
+                const curr = src._data;
+                if (curr) buildLayers(curr);
+            }
+        }
+        if (msg.subgrid && msg.subgrid.predictions) {
+            subgridPredictions = msg.subgrid.predictions;
+            if (subgridGeoJSON && map.getSource('subgrid')) {
+                buildSubgridLayers(subgridGeoJSON, subgridPredictions);
+            }
+        }
+    };
+    ws.onclose = () => setTimeout(startWS, 5000);
+}
+
+// ── REFRESH ───────────────────────────────────
+async function doRefresh() {
+    const b = document.getElementById('rbtn');
+    b.textContent = '↻ Refreshing...'; b.disabled = true;
+    try { await fetch('/api/refresh', { method: 'POST' }); } catch {}
+    setTimeout(() => { b.textContent = '↻ Refresh Telemetry'; b.disabled = false; }, 3000);
+}
+
+function setLdMsg(m) { const e = document.getElementById('ldmsg'); if (e) e.textContent = m; }
+
+// ── START ─────────────────────────────────────
+initMap();
+</script>
+</body>
+</html>

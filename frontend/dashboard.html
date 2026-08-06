@@ -1,0 +1,839 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Kerala Landslide Risk Monitor Dashboard</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
+        rel="stylesheet" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#135bec",
+                        "background-light": "#f6f6f8",
+                        "background-dark": "#101622",
+                        "risk-high": "#ef4444",
+                        "risk-med": "#f59e0b",
+                        "risk-low": "#10b981",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"],
+                        "mono": ["JetBrains Mono", "monospace"],
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    boxShadow: {
+                        'neon': '0 0 10px theme("colors.primary"), 0 0 20px theme("colors.primary")',
+                    }
+                },
+            },
+        }
+    </script>
+    <style type="text/tailwindcss">
+        @layer utilities {
+        .glass-panel {
+            @apply bg-background-dark/80 backdrop-blur-xl border border-white/10 shadow-xl;
+        }
+        .tech-text {
+            @apply font-mono text-xs uppercase tracking-wider text-primary/80;
+        }
+        .grid-bg {
+            background-size: 40px 40px;
+            background-image:
+              linear-gradient(to right, rgba(19, 91, 236, 0.05) 1px, transparent 1px),
+              linear-gradient(to bottom, rgba(19, 91, 236, 0.05) 1px, transparent 1px);
+        }
+    }
+</style>
+    <style>
+        /* Map fills the background */
+        #map {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            background-color: #0f172a;
+        }
+
+        .leaflet-control-zoom {
+            display: none !important;
+        }
+
+        .leaflet-control-attribution {
+            display: none !important;
+        }
+
+        /* Map overlay vignette */
+        .map-layer {
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(circle at center, transparent 0%, #101622 100%);
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        /* Pulsing Wave Animation (Legacy v1 Style) */
+        @keyframes pulse-wave {
+            0% {
+                transform: translate(-50%, -50%) scale(0.3);
+                opacity: 0.9;
+            }
+
+            100% {
+                transform: translate(-50%, -50%) scale(2.5);
+                opacity: 0;
+            }
+        }
+
+        .pulse-marker {
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(239, 68, 68, 0.8) 0%, rgba(239, 68, 68, 0) 70%);
+            pointer-events: none;
+        }
+
+        .pulse-marker::before,
+        .pulse-marker::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            border: 3px solid rgba(239, 68, 68, 0.8);
+            animation: pulse-wave 2s ease-out infinite;
+        }
+
+        .pulse-marker::after {
+            animation-delay: 1s;
+        }
+
+        .breathing-red {
+            stroke: #ef4444 !important;
+            stroke-width: 3px !important;
+            fill: #ef4444 !important;
+            fill-opacity: 0.4 !important;
+            filter: drop-shadow(0 0 8px rgba(239, 68, 68, 0.6));
+        }
+
+        /* Config modal */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(4px);
+            z-index: 9999;
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        /* Chat */
+        #chatMessages::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        #chatMessages::-webkit-scrollbar-thumb {
+            background: #2a3449;
+            border-radius: 2px;
+        }
+
+        .chat-bot {
+            background: rgba(19, 91, 236, 0.08);
+            border: 1px solid rgba(19, 91, 236, 0.15);
+        }
+
+        .chat-user {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        /* Pulse for high risk markers */
+        .pulse-dot {
+            animation: pulse-grow 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse-grow {
+
+            0%,
+            100% {
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+            }
+
+            50% {
+                box-shadow: 0 0 0 12px rgba(239, 68, 68, 0);
+            }
+        }
+    </style>
+</head>
+
+<body
+    class="bg-background-light dark:bg-background-dark font-display text-white overflow-hidden h-screen w-screen relative">
+
+    <!-- Background Map -->
+    <div class="grid-bg" id="map-container">
+        <div id="map"></div>
+        <div class="map-layer"></div>
+    </div>
+
+    <!-- ===== Top Navigation HUD ===== -->
+    <nav class="absolute top-0 left-0 w-full z-[1000] p-6 flex justify-between items-start pointer-events-none">
+        <div class="glass-panel rounded-lg px-6 py-3 flex items-center gap-6 pointer-events-auto">
+            <div class="flex items-center gap-3">
+                <div class="h-8 w-8 bg-primary rounded flex items-center justify-center">
+                    <span class="material-icons text-white text-sm">radar</span>
+                </div>
+                <div>
+                    <h1 class="text-sm font-bold tracking-widest text-white">KERALA <span
+                            class="text-primary font-normal">DISASTER RISK MONITOR</span></h1>
+                    <div class="flex items-center gap-2 mt-0.5">
+                        <span class="relative flex h-2 w-2">
+                            <span
+                                class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                            <span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                        </span>
+                        <span class="text-[10px] font-mono text-green-400 tracking-wider">SYSTEM ONLINE</span>
+                    </div>
+                </div>
+            </div>
+            <div class="h-8 w-px bg-white/10"></div>
+            <div class="flex gap-6 text-xs font-mono text-gray-400">
+                <div>
+                    <span class="block text-primary/60 text-[10px]">LOCAL TIME</span>
+                    <span class="text-white" id="liveClock">--:--:-- IST</span>
+                </div>
+                <div>
+                    <span class="block text-primary/60 text-[10px]">WEATHER</span>
+                    <span class="text-white" id="weatherInfo">RAIN --mm</span>
+                </div>
+                <div>
+                    <span class="block text-primary/60 text-[10px]">ACTIVE ZONES</span>
+                    <span class="text-risk-high animate-pulse" id="highRiskCount">0 CRITICAL</span>
+                </div>
+            </div>
+        </div>
+        <div class="hidden md:flex glass-panel rounded-lg px-4 py-2 pointer-events-auto gap-4">
+            <button class="flex items-center gap-2 text-xs font-mono text-primary hover:text-white transition-colors">
+                <span class="material-icons text-base">layers</span> LAYERS
+            </button>
+            <button onclick="openConfig()"
+                class="flex items-center gap-2 text-xs font-mono text-gray-400 hover:text-white transition-colors">
+                <span class="material-icons text-base">settings</span> CONFIG
+            </button>
+        </div>
+    </nav>
+
+    <!-- ===== Main Content Area ===== -->
+    <div class="absolute inset-0 z-[999] flex pointer-events-none p-6 pt-24">
+        <!-- Left Side: Map Controls & Quick Stats (EXACT Stitch layout) -->
+        <div class="flex flex-col justify-end gap-4 w-64 pointer-events-auto mb-6">
+            <div class="glass-panel p-4 rounded-lg space-y-3">
+                <h3 class="tech-text">Map Filters</h3>
+                <div class="flex flex-col gap-2">
+                    <label class="flex items-center gap-3 text-sm text-gray-300 cursor-pointer group">
+                        <div
+                            class="w-4 h-4 border border-primary bg-primary rounded-sm flex items-center justify-center">
+                            <span class="material-icons text-[10px] text-white">check</span>
+                        </div>
+                        <span class="group-hover:text-primary transition-colors">Rainfall Intensity</span>
+                    </label>
+                    <label class="flex items-center gap-3 text-sm text-gray-300 cursor-pointer group">
+                        <div
+                            class="w-4 h-4 border border-white/20 bg-transparent rounded-sm group-hover:border-primary transition-colors">
+                        </div>
+                        <span class="group-hover:text-primary transition-colors">Soil Saturation</span>
+                    </label>
+                    <label class="flex items-center gap-3 text-sm text-gray-300 cursor-pointer group">
+                        <div
+                            class="w-4 h-4 border border-white/20 bg-transparent rounded-sm group-hover:border-primary transition-colors">
+                        </div>
+                        <span class="group-hover:text-primary transition-colors">Slope Stability</span>
+                    </label>
+                </div>
+            </div>
+            <div class="glass-panel p-2 rounded-lg flex flex-col items-center gap-2 w-12 self-start">
+                <button onclick="map.zoomIn()"
+                    class="w-8 h-8 flex items-center justify-center rounded hover:bg-white/10 text-white/70 hover:text-white transition-colors">
+                    <span class="material-icons text-lg">add</span>
+                </button>
+                <div class="w-4 h-px bg-white/10"></div>
+                <button onclick="map.zoomOut()"
+                    class="w-8 h-8 flex items-center justify-center rounded hover:bg-white/10 text-white/70 hover:text-white transition-colors">
+                    <span class="material-icons text-lg">remove</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Spacer -->
+        <div class="flex-1"></div>
+
+        <!-- ===== Right Side: Analysis Panel — EXACT Stitch + Bigger Chat ===== -->
+        <div class="w-96 flex flex-col gap-4 pointer-events-auto h-full pb-6">
+
+            <!-- Location & Risk Card (EXACT from Stitch) -->
+            <div class="glass-panel rounded-xl p-6 flex flex-col gap-6 relative overflow-hidden group" id="riskCard">
+                <!-- Decorative scan line -->
+                <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-risk-low to-transparent opacity-50"
+                    id="riskGradientBar"></div>
+                <div class="flex justify-between items-start">
+                    <div>
+                        <h2 class="text-2xl font-bold tracking-tight" id="locName">Select a Location</h2>
+                        <div class="flex items-center gap-2 text-xs font-mono text-gray-400 mt-1">
+                            <span class="bg-white/5 px-1.5 py-0.5 rounded text-primary" id="locTaluk">--</span>
+                            <span id="locCoords">--</span>
+                        </div>
+                    </div>
+                    <button onclick="closePanel()" class="text-gray-400 hover:text-white">
+                        <span class="material-icons">close</span>
+                    </button>
+                </div>
+                <!-- Risk Gauge (EXACT from Stitch) -->
+                <div class="flex items-center gap-6 justify-center py-2">
+                    <div class="relative w-32 h-32 flex items-center justify-center">
+                        <svg class="w-full h-full transform -rotate-90">
+                            <circle class="text-white/5" cx="64" cy="64" fill="transparent" r="56" stroke="currentColor"
+                                stroke-width="8"></circle>
+                            <circle id="gaugeCircle" class="text-risk-low" cx="64" cy="64" fill="transparent" r="56"
+                                stroke="currentColor" stroke-dasharray="351.86" stroke-dashoffset="351.86"
+                                stroke-width="8" style="transition: all 0.8s ease;"></circle>
+                        </svg>
+                        <div class="absolute flex flex-col items-center">
+                            <span class="text-3xl font-bold font-mono text-white" id="gaugeValue">--%</span>
+                            <span class="text-[10px] font-bold tracking-widest uppercase mt-1" id="gaugeLabel"
+                                style="color:#10b981">--</span>
+                        </div>
+                    </div>
+                </div>
+                <!-- Metrics Grid (EXACT from Stitch) -->
+                <div class="grid grid-cols-2 gap-3">
+                    <div
+                        class="bg-background-dark/50 border border-white/5 p-3 rounded-lg hover:border-primary/50 transition-colors">
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="material-icons text-primary text-sm">water_drop</span>
+                            <span class="text-[10px] text-gray-400 uppercase tracking-wide">7-Day Rain</span>
+                        </div>
+                        <span class="font-mono text-lg font-medium" id="metricRain">--<span
+                                class="text-xs text-gray-500 ml-1">mm</span></span>
+                        <div class="w-full h-1 bg-white/10 rounded-full mt-2 overflow-hidden">
+                            <div class="h-full bg-blue-400 transition-all" id="rainBar" style="width:0%"></div>
+                        </div>
+                    </div>
+                    <div
+                        class="bg-background-dark/50 border border-white/5 p-3 rounded-lg hover:border-primary/50 transition-colors">
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="material-icons text-orange-400 text-sm">landscape</span>
+                            <span class="text-[10px] text-gray-400 uppercase tracking-wide">Slope Angle</span>
+                        </div>
+                        <span class="font-mono text-lg font-medium" id="metricSlope">--<span
+                                class="text-xs text-gray-500 ml-1">deg</span></span>
+                        <div class="w-full h-1 bg-white/10 rounded-full mt-2 overflow-hidden">
+                            <div class="h-full bg-orange-400 transition-all" id="slopeBar" style="width:0%"></div>
+                        </div>
+                    </div>
+                    <div
+                        class="bg-background-dark/50 border border-white/5 p-3 rounded-lg hover:border-primary/50 transition-colors">
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="material-icons text-purple-400 text-sm">terrain</span>
+                            <span class="text-[10px] text-gray-400 uppercase tracking-wide">Elevation</span>
+                        </div>
+                        <span class="font-mono text-lg font-medium" id="metricDem">--<span
+                                class="text-xs text-gray-500 ml-1">m</span></span>
+                    </div>
+                    <div
+                        class="bg-background-dark/50 border border-white/5 p-3 rounded-lg hover:border-primary/50 transition-colors">
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="material-icons text-teal-400 text-sm">opacity</span>
+                            <span class="text-[10px] text-gray-400 uppercase tracking-wide">Risk Level</span>
+                        </div>
+                        <span class="font-mono text-lg font-medium" id="metricRisk">--</span>
+                    </div>
+                </div>
+                <!-- Alert History (EXACT from Stitch) -->
+                <div class="mt-2 pt-4 border-t border-white/10">
+                    <h3 class="tech-text mb-2">Alert History</h3>
+                    <div class="space-y-2" id="alertHistory">
+                        <div class="flex items-start gap-2 text-xs">
+                            <span class="text-gray-500 material-icons text-sm">info</span>
+                            <div>
+                                <span class="text-gray-400 block">Click a zone on the map</span>
+                                <span class="text-gray-500 font-mono text-[10px]">Waiting...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ===== Expert Chat Interface (BIGGER — like Stitch Design 2) ===== -->
+            <div
+                class="glass-panel rounded-xl p-0 flex flex-col flex-1 relative overflow-hidden shadow-neon border-primary/30">
+                <div class="p-3 bg-primary/10 border-b border-primary/20 flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <div class="relative">
+                            <div
+                                class="w-2 h-2 rounded-full bg-green-500 absolute bottom-0 right-0 border border-black">
+                            </div>
+                            <span class="material-icons text-primary">support_agent</span>
+                        </div>
+                        <span class="text-xs font-bold text-primary tracking-wide">ASK EXPERT GEOLOGIST</span>
+                    </div>
+                    <span class="material-icons text-primary/50 text-sm">analytics</span>
+                </div>
+                <div id="chatMessages" class="flex-1 p-4 overflow-y-auto space-y-4 text-sm font-mono scrollbar-hide">
+                    <!-- Bot Message -->
+                    <div class="flex gap-3">
+                        <div class="w-6 h-6 rounded bg-primary/20 flex items-center justify-center shrink-0">
+                            <span class="material-icons text-primary text-[10px]">smart_toy</span>
+                        </div>
+                        <div class="bg-white/5 rounded-lg rounded-tl-none p-3 text-gray-300 border border-white/5">
+                            High-risk zone analysis is ready. Select a location on the map and ask me about its
+                            geological risk factors. I can analyze slope stability, rainfall patterns, and evacuation
+                            routes.
+                        </div>
+                    </div>
+                </div>
+                <!-- Quick buttons + Input -->
+                <div class="p-3 bg-black/20 border-t border-white/5">
+                    <div class="flex gap-2 mb-2">
+                        <button onclick="quickAsk('What are the evacuation routes?')"
+                            class="px-2 py-1 bg-primary/10 hover:bg-primary/20 border border-primary/30 rounded text-[10px] text-primary transition-colors">Evacuation
+                            Routes</button>
+                        <button onclick="quickAsk('What is the rainfall trend?')"
+                            class="px-2 py-1 bg-white/5 hover:bg-white/10 border border-white/10 rounded text-[10px] text-gray-400 transition-colors">Rainfall
+                            Trend</button>
+                        <button onclick="quickAsk('Is it safe to build here?')"
+                            class="px-2 py-1 bg-white/5 hover:bg-white/10 border border-white/10 rounded text-[10px] text-gray-400 transition-colors">Safe
+                            to Build?</button>
+                    </div>
+                    <div class="relative">
+                        <input id="chatInput"
+                            class="w-full bg-background-dark border border-white/10 rounded pl-3 pr-10 py-2.5 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+                            placeholder="Type query for geological analysis..." type="text"
+                            onkeydown="if(event.key==='Enter') askExpert()" />
+                        <button onclick="askExpert()"
+                            class="absolute right-2 top-1/2 -translate-y-1/2 text-primary hover:text-white transition-colors">
+                            <span class="material-icons text-sm">send</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== CONFIG MODAL (Rain API Switcher) ===== -->
+    <div class="modal-overlay" id="configModal">
+        <div class="glass-panel rounded-xl p-6 w-[420px] relative">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-lg font-bold flex items-center gap-2">
+                    <span class="material-icons text-primary">settings</span> Configuration
+                </h2>
+                <button onclick="closeConfig()" class="text-gray-400 hover:text-white">
+                    <span class="material-icons">close</span>
+                </button>
+            </div>
+
+            <!-- Rain API Provider -->
+            <div class="mb-5">
+                <label class="block text-xs font-mono text-gray-400 uppercase tracking-wider mb-2">Rainfall Data
+                    Provider</label>
+                <div class="grid grid-cols-2 gap-3">
+                    <button id="btnOpenMeteo" onclick="selectProvider('open_meteo')"
+                        class="p-3 rounded-lg border-2 border-primary bg-primary/10 text-left transition-all">
+                        <div class="font-bold text-sm text-white">Open-Meteo</div>
+                        <div class="text-[10px] text-gray-400 mt-1">Free, no API key needed</div>
+                    </button>
+                    <button id="btnOpenWeather" onclick="selectProvider('openweathermap')"
+                        class="p-3 rounded-lg border-2 border-white/10 bg-white/5 text-left transition-all hover:border-white/30">
+                        <div class="font-bold text-sm text-white">OpenWeatherMap</div>
+                        <div class="text-[10px] text-gray-400 mt-1">Requires API key</div>
+                    </button>
+                </div>
+            </div>
+
+            <!-- API Key -->
+            <div class="mb-5" id="apiKeySection" style="display:none">
+                <label class="block text-xs font-mono text-gray-400 uppercase tracking-wider mb-2">API Key</label>
+                <input id="apiKeyInput" type="text" placeholder="Enter your OpenWeatherMap API key..."
+                    class="w-full bg-background-dark border border-white/10 rounded px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-primary" />
+            </div>
+
+            <!-- Save -->
+            <div class="flex gap-3">
+                <button onclick="saveConfig()"
+                    class="flex-1 bg-primary hover:bg-primary/90 text-white py-2.5 rounded-lg text-sm font-medium transition-colors">
+                    Save & Refresh Data
+                </button>
+                <button onclick="closeConfig()"
+                    class="px-4 py-2.5 border border-white/10 rounded-lg text-sm text-gray-400 hover:text-white transition-colors">
+                    Cancel
+                </button>
+            </div>
+
+            <div id="configStatus" class="mt-3 text-xs font-mono text-center hidden"></div>
+        </div>
+    </div>
+
+    <script>
+        // ============ CONFIG ============
+        const API = window.location.origin;
+        let map, predictions = {}, layers = {}, selectedId = null, currentProvider = 'open_meteo';
+        let rippleMarkers = {};
+
+        // ============ INIT ============
+        document.addEventListener('DOMContentLoaded', () => {
+            initMap();
+            loadData();
+            startClock();
+            initWebSocket();
+            loadConfig();
+        });
+
+        function initMap() {
+            map = L.map('map', { center: [10.8505, 76.2711], zoom: 8, zoomControl: false, attributionControl: false });
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                maxZoom: 19
+            }).addTo(map);
+        }
+
+        async function loadData() {
+            try {
+                const [taluks, preds] = await Promise.all([
+                    fetch(`${API}/api/taluks`).then(r => r.json()),
+                    fetch(`${API}/api/predictions`).then(r => r.json())
+                ]);
+                renderPolygons(taluks);
+                updatePredictions(preds);
+            } catch (e) { console.error('Load error:', e); }
+        }
+
+        function renderPolygons(data) {
+            if (!data.features) return;
+            Object.values(layers).forEach(l => map.removeLayer(l));
+            layers = {};
+            data.features.forEach(f => {
+                const props = f.properties;
+                const layer = L.geoJSON(f, {
+                    style: { fillColor: '#6b7280', fillOpacity: 0.4, color: '#94a3b8', weight: 1 }
+                });
+                layer.on('click', () => showDetails(props.taluk_id));
+                layer.on('mouseover', function () { this.setStyle({ weight: 2, color: '#60a5fa' }); });
+                layer.on('mouseout', function () {
+                    this.setStyle({ weight: selectedId === props.taluk_id ? 3 : 1, color: selectedId === props.taluk_id ? '#3b82f6' : '#94a3b8' });
+                });
+                layer.addTo(map);
+                layers[props.taluk_id] = layer;
+            });
+        }
+
+        function updatePredictions(data) {
+            predictions = {};
+            let highCount = 0, maxRain = 0;
+
+            if (data.predictions) {
+                data.predictions.forEach(p => {
+                    predictions[p.taluk_id] = p;
+                    if (layers[p.taluk_id]) {
+                        layers[p.taluk_id].setStyle({ fillColor: p.color });
+
+                        const el = layers[p.taluk_id].getElement();
+                        if (el) {
+                            if (p.risk_level === 'HIGH') {
+                                // L.DomUtil.addClass(el, 'breathing-red');
+                                layers[p.taluk_id].bringToFront();
+
+                                // Add Pulse Wave Marker (Legacy v1 Style)
+                                if (!rippleMarkers[p.taluk_id]) {
+                                    const center = layers[p.taluk_id].getBounds().getCenter();
+                                    const icon = L.divIcon({
+                                        className: 'pulse-marker',
+                                        iconSize: [60, 60],
+                                        iconAnchor: [30, 30]
+                                    });
+                                    const marker = L.marker(center, { icon: icon, interactive: false }).addTo(map);
+                                    rippleMarkers[p.taluk_id] = marker;
+                                }
+                            } else {
+                                // L.DomUtil.removeClass(el, 'breathing-red');
+
+                                // Remove Ripple Marker if exists
+                                if (rippleMarkers[p.taluk_id]) {
+                                    map.removeLayer(rippleMarkers[p.taluk_id]);
+                                    delete rippleMarkers[p.taluk_id];
+                                }
+                            }
+                        }
+                    }
+                    if (p.risk_level === 'HIGH') highCount++;
+                    if (p.rain7 > maxRain) maxRain = p.rain7;
+                });
+            }
+            document.getElementById('highRiskCount').textContent = highCount + ' CRITICAL';
+            document.getElementById('weatherInfo').textContent = `RAIN ${maxRain.toFixed(0)}mm/7d`;
+        }
+
+        // ============ DETAILS PANEL ============
+        function showDetails(id) {
+            // Deselect previous
+            if (selectedId && layers[selectedId]) {
+                layers[selectedId].setStyle({ weight: 1, color: '#94a3b8' });
+            }
+
+            selectedId = id;
+            const p = predictions[id];
+            if (!p) return;
+
+            // Highlight selected
+            if (layers[id]) {
+                layers[id].setStyle({ weight: 3, color: '#3b82f6' });
+            }
+
+            const prob = p.probability * 100;
+            const circumference = 2 * Math.PI * 56; // 351.86
+            const offset = circumference * (1 - p.probability);
+            const colors = { LOW: '#10b981', MEDIUM: '#f59e0b', HIGH: '#ef4444' };
+            const color = colors[p.risk_level] || '#10b981';
+
+            // Location
+            document.getElementById('locName').textContent = p.taluk_name;
+            document.getElementById('locTaluk').textContent = `ID: ${p.taluk_id}`;
+            document.getElementById('locCoords').textContent = `${p.latitude.toFixed(2)}°N, ${p.longitude.toFixed(2)}°E`;
+
+            // Gradient bar
+            document.getElementById('riskGradientBar').style.background = `linear-gradient(to right, transparent, ${color}, transparent)`;
+
+            // Gauge
+            const gauge = document.getElementById('gaugeCircle');
+            gauge.style.strokeDashoffset = offset;
+            gauge.style.stroke = color;
+            document.getElementById('gaugeValue').textContent = prob.toFixed(0) + '%';
+            const lbl = document.getElementById('gaugeLabel');
+            lbl.textContent = p.risk_level === 'HIGH' ? 'CRITICAL' : p.risk_level;
+            lbl.style.color = color;
+
+            // Metrics
+            document.getElementById('metricRain').innerHTML = `${p.rain7.toFixed(0)}<span class="text-xs text-gray-500 ml-1">mm</span>`;
+            document.getElementById('metricSlope').innerHTML = `${p.slope.toFixed(0)}<span class="text-xs text-gray-500 ml-1">deg</span>`;
+            document.getElementById('metricDem').innerHTML = `${p.dem.toFixed(0)}<span class="text-xs text-gray-500 ml-1">m</span>`;
+            document.getElementById('metricRisk').innerHTML = `<span style="color:${color}">${p.risk_level}</span>`;
+
+            // Bars
+            document.getElementById('rainBar').style.width = Math.min(100, p.rain7 / 3) + '%';
+            document.getElementById('slopeBar').style.width = Math.min(100, p.slope / 0.45) + '%';
+
+            // Alert History
+            const now = new Date().toLocaleTimeString('en-IN', { hour12: true });
+            document.getElementById('alertHistory').innerHTML = `
+        <div class="flex items-start gap-2 text-xs">
+            <span class="material-icons text-sm" style="color:${color}">warning</span>
+            <div>
+                <span class="text-white block">Zone selected: ${p.taluk_name}</span>
+                <span class="text-gray-500 font-mono text-[10px]">Today, ${now}</span>
+            </div>
+        </div>
+        <div class="flex items-start gap-2 text-xs">
+            <span class="material-icons text-sm text-primary">assessment</span>
+            <div>
+                <span class="text-white block">Risk: ${prob.toFixed(1)}% (${p.risk_level})</span>
+                <span class="text-gray-500 font-mono text-[10px]">Rain: ${p.rain7.toFixed(1)}mm | Slope: ${p.slope.toFixed(1)}°</span>
+            </div>
+        </div>`;
+        }
+
+        function closePanel() {
+            if (selectedId && layers[selectedId]) {
+                layers[selectedId].setStyle({ weight: 1, color: '#94a3b8' });
+            }
+            selectedId = null;
+            document.getElementById('locName').textContent = 'Select a Location';
+            document.getElementById('locTaluk').textContent = '--';
+            document.getElementById('locCoords').textContent = '--';
+            document.getElementById('gaugeValue').textContent = '--%';
+            document.getElementById('gaugeLabel').textContent = '--';
+            document.getElementById('gaugeCircle').style.strokeDashoffset = 351.86;
+        }
+
+        // ============ EXPERT CHAT (BIGGER) ============
+        function quickAsk(question) {
+            document.getElementById('chatInput').value = question;
+            askExpert();
+        }
+
+        async function askExpert() {
+            if (!selectedId) {
+                addBotMessage("Please click on a location on the map first, then ask me a question about it.");
+                return;
+            }
+            const input = document.getElementById('chatInput');
+            const question = input.value.trim();
+            if (!question) return;
+            input.value = '';
+
+            const p = predictions[selectedId];
+
+            // User message
+            addUserMessage(question);
+
+            // Loading
+            const loadId = 'load-' + Date.now();
+            const chat = document.getElementById('chatMessages');
+            chat.innerHTML += `
+        <div class="flex gap-3" id="${loadId}">
+            <div class="w-6 h-6 rounded bg-primary/20 flex items-center justify-center shrink-0">
+                <span class="material-icons text-primary text-[10px] animate-spin">sync</span>
+            </div>
+            <div class="bg-white/5 rounded-lg rounded-tl-none p-3 text-gray-400 border border-white/5">
+                Analyzing ${p.taluk_name}...
+            </div>
+        </div>`;
+            chat.scrollTop = chat.scrollHeight;
+
+            try {
+                const res = await fetch(`${API}/api/ask-expert`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ taluk_id: selectedId, lat: p.latitude, lon: p.longitude, question })
+                });
+                const data = await res.json();
+                document.getElementById(loadId)?.remove();
+                addBotMessage(data.analysis);
+            } catch (e) {
+                document.getElementById(loadId)?.remove();
+                addBotMessage("⚠ Error contacting the expert system. Please check the backend.");
+            }
+        }
+
+        function addBotMessage(text) {
+            const chat = document.getElementById('chatMessages');
+            chat.innerHTML += `
+        <div class="flex gap-3">
+            <div class="w-6 h-6 rounded bg-primary/20 flex items-center justify-center shrink-0">
+                <span class="material-icons text-primary text-[10px]">smart_toy</span>
+            </div>
+            <div class="bg-white/5 rounded-lg rounded-tl-none p-3 text-gray-300 border border-white/5">
+                ${text.replace(/\n/g, '<br>')}
+            </div>
+        </div>`;
+            chat.scrollTop = chat.scrollHeight;
+        }
+
+        function addUserMessage(text) {
+            const chat = document.getElementById('chatMessages');
+            chat.innerHTML += `
+        <div class="flex gap-3 justify-end">
+            <div class="bg-primary/10 rounded-lg rounded-tr-none p-3 text-gray-200 border border-primary/20 max-w-[80%]">
+                ${text}
+            </div>
+        </div>`;
+            chat.scrollTop = chat.scrollHeight;
+        }
+
+        // ============ CONFIG MODAL ============
+        async function loadConfig() {
+            try {
+                const res = await fetch(`${API}/api/settings`);
+                const data = await res.json();
+                currentProvider = data.provider || 'open_meteo';
+                updateProviderUI();
+                if (data.api_key) document.getElementById('apiKeyInput').value = data.api_key;
+            } catch (e) { }
+        }
+
+        function openConfig() { document.getElementById('configModal').classList.add('active'); }
+        function closeConfig() { document.getElementById('configModal').classList.remove('active'); }
+
+        function selectProvider(provider) {
+            currentProvider = provider;
+            updateProviderUI();
+        }
+
+        function updateProviderUI() {
+            const om = document.getElementById('btnOpenMeteo');
+            const ow = document.getElementById('btnOpenWeather');
+            const key = document.getElementById('apiKeySection');
+
+            if (currentProvider === 'open_meteo') {
+                om.className = 'p-3 rounded-lg border-2 border-primary bg-primary/10 text-left transition-all';
+                ow.className = 'p-3 rounded-lg border-2 border-white/10 bg-white/5 text-left transition-all hover:border-white/30';
+                key.style.display = 'none';
+            } else {
+                ow.className = 'p-3 rounded-lg border-2 border-primary bg-primary/10 text-left transition-all';
+                om.className = 'p-3 rounded-lg border-2 border-white/10 bg-white/5 text-left transition-all hover:border-white/30';
+                key.style.display = 'block';
+            }
+        }
+
+        async function saveConfig() {
+            const status = document.getElementById('configStatus');
+            status.classList.remove('hidden');
+            status.textContent = 'Saving...';
+            status.className = 'mt-3 text-xs font-mono text-center text-primary';
+
+            try {
+                await fetch(`${API}/api/settings`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        provider: currentProvider,
+                        api_key: document.getElementById('apiKeyInput').value
+                    })
+                });
+
+                status.textContent = '✓ Saved! Refreshing data...';
+                status.className = 'mt-3 text-xs font-mono text-center text-green-400';
+
+                // Trigger data refresh
+                await fetch(`${API}/api/refresh`, { method: 'POST' });
+
+                setTimeout(() => {
+                    closeConfig();
+                    status.classList.add('hidden');
+                    loadData();
+                }, 2000);
+            } catch (e) {
+                status.textContent = '✗ Error saving config';
+                status.className = 'mt-3 text-xs font-mono text-center text-red-400';
+            }
+        }
+
+        // ============ CLOCK ============
+        function startClock() {
+            setInterval(() => {
+                document.getElementById('liveClock').textContent = new Date().toLocaleTimeString('en-IN', { hour12: false, timeZone: 'Asia/Kolkata' }) + ' IST';
+            }, 1000);
+        }
+
+        // ============ WEBSOCKET ============
+        function initWebSocket() {
+            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const ws = new WebSocket(`${proto}//${location.host}/ws`);
+            ws.onmessage = (e) => { try { updatePredictions(JSON.parse(e.data)); } catch (err) { } };
+            ws.onclose = () => setTimeout(initWebSocket, 3000);
+        }
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,83 @@
+﻿LANDSAT V2 - WEB TO EXE CONVERSION GUIDE
+=======================================
+
+Goal
+----
+Convert the Landsat V2 web app (FastAPI + frontend) into a Windows desktop EXE.
+
+Project Assumption
+------------------
+Your `landsat_v2` folder already contains:
+- `app/main.py`
+- `frontend/scientific.html`
+- model/config files used by backend
+
+Step 1: Install packaging dependencies
+--------------------------------------
+From project root:
+
+pip install -r landsat_v2/requirements.txt
+pip install pywebview pyinstaller pythonnet
+
+Step 2: Create launcher file
+----------------------------
+Create `landsat_v2/web_app.py` with this behavior:
+- Start FastAPI app (`app.main:app`) on localhost with a free port.
+- Wait until server is reachable.
+- Open a native desktop window using `pywebview` to `http://127.0.0.1:<port>`.
+
+You can reuse the same approach from `landsat_v1/web_app.py`.
+
+Step 3: Create PyInstaller spec
+--------------------------------
+Create `landsat_v2/web_app.spec` including:
+- script: `web_app.py`
+- datas:
+  - `frontend -> frontend`
+  - `app -> app`
+  - required model files (`*.pkl`, `*.joblib` if used)
+  - `settings.json` if used
+- hidden imports:
+  - uvicorn, fastapi, starlette, pydantic
+  - webview, clr, pythonnet
+
+You can use `landsat_v1/web_app.spec` as base and replace file paths for v2.
+
+Step 4: Build EXE
+-----------------
+Run inside `landsat_v2`:
+
+pyinstaller --clean --noconfirm web_app.spec
+
+Output will be in:
+- `landsat_v2/dist/<AppName>/` (folder build)
+- or `landsat_v2/dist/<AppName>.exe` (single-file setup if configured)
+
+Step 5: Test
+------------
+1. Launch the built EXE.
+2. Verify dashboard opens.
+3. Verify API endpoints load data:
+   - `/health`
+   - `/api/predictions`
+4. Check logs for missing imports or missing data files.
+
+Common Issues
+-------------
+1. Blank window: backend did not start. Check launcher thread and port wait loop.
+2. ModuleNotFoundError in EXE: add module to `hiddenimports` in spec.
+3. Missing frontend: confirm `datas.append(('frontend', 'frontend'))`.
+4. Missing model/config: include all runtime files in `datas`.
+5. Windows Defender warning: sign executable or distribute as zipped folder build.
+
+Recommended First Build
+-----------------------
+Start with folder build (not one-file). It is easier to debug missing runtime files.
+
+Quick Command Summary
+---------------------
+pip install -r landsat_v2/requirements.txt
+pip install pywebview pyinstaller pythonnet
+cd landsat_v2
+pyinstaller --clean --noconfirm web_app.spec
+

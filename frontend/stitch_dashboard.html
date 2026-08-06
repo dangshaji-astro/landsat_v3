@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Kerala Landslide Risk Monitor Dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#135bec",
+                        "background-light": "#f6f6f8",
+                        "background-dark": "#101622",
+                        "risk-high": "#ef4444",
+                        "risk-med": "#f59e0b",
+                        "risk-low": "#10b981",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"],
+                        "mono": ["JetBrains Mono", "monospace"],
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    boxShadow: {
+                        'neon': '0 0 10px theme("colors.primary"), 0 0 20px theme("colors.primary")',
+                    }
+                },
+            },
+        }
+    </script>
+<style type="text/tailwindcss">
+        @layer utilities {
+            .glass-panel {
+                @apply bg-background-dark/80 backdrop-blur-xl border border-white/10 shadow-xl;
+            }
+            .tech-text {
+                @apply font-mono text-xs uppercase tracking-wider text-primary/80;
+            }
+            .grid-bg {
+                background-size: 40px 40px;
+                background-image:
+                  linear-gradient(to right, rgba(19, 91, 236, 0.05) 1px, transparent 1px),
+                  linear-gradient(to bottom, rgba(19, 91, 236, 0.05) 1px, transparent 1px);
+            }
+        }
+        
+        /* Map container styling */
+        #map-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            overflow: hidden;
+            background-color: #0f172a;
+        }
+
+        .map-layer {
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(circle at center, transparent 0%, #101622 100%);
+            z-index: 1;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display text-white overflow-hidden h-screen w-screen relative">
+<!-- Background Map -->
+<div class="grid-bg" id="map-container">
+<!-- Placeholder for map image -->
+<img alt="Satellite view of Kerala terrain map background" class="w-full h-full object-cover opacity-40 mix-blend-overlay" data-alt="Satellite view of Kerala terrain map background" data-location="Kerala" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC2rofTtsWrAO8OdoJL0piToLdMfAvtZR3q2uoLQVf7zS2lowoYhrTyGGW_GC9jBmUpGNaKsxjN3hoFDsS4uRySePq7V9C6CP9RjoFF9jzE2ZqegKNjF398AOYIhrtpJoun2-YUmL8IR9r94aqhZVxkkIyAGM5X1QHjzVXfPIMM_-1CWMpSiji6axWNJRZI7fp86lyfIE074EdA0mU2MEShEGXbmgckTw02Rd0Cg65_zAW2KpEjFl_rjI-JMtSKA1MJ9cG62TgGpzo"/>
+<!-- Synthetic Overlay for Map Elements (Simulated Polygons) -->
+<div class="absolute top-1/3 left-1/3 w-64 h-64 bg-risk-high/20 border border-risk-high rounded-full blur-3xl opacity-50 animate-pulse"></div>
+<div class="absolute bottom-1/4 right-1/2 w-96 h-96 bg-primary/10 border border-primary/30 rounded-full blur-2xl opacity-40"></div>
+<!-- Vignette -->
+<div class="map-layer"></div>
+</div>
+<!-- Top Navigation HUD -->
+<nav class="absolute top-0 left-0 w-full z-50 p-6 flex justify-between items-start pointer-events-none">
+<div class="glass-panel rounded-lg px-6 py-3 flex items-center gap-6 pointer-events-auto">
+<div class="flex items-center gap-3">
+<div class="h-8 w-8 bg-primary rounded flex items-center justify-center">
+<span class="material-icons text-white text-sm">radar</span>
+</div>
+<div>
+<h1 class="text-sm font-bold tracking-widest text-white">KERALA <span class="text-primary font-normal">DISASTER RISK MONITOR</span></h1>
+<div class="flex items-center gap-2 mt-0.5">
+<span class="relative flex h-2 w-2">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+</span>
+<span class="text-[10px] font-mono text-green-400 tracking-wider">SYSTEM ONLINE</span>
+</div>
+</div>
+</div>
+<div class="h-8 w-px bg-white/10"></div>
+<div class="flex gap-6 text-xs font-mono text-gray-400">
+<div>
+<span class="block text-primary/60 text-[10px]">LOCAL TIME</span>
+<span class="text-white">14:42:09 IST</span>
+</div>
+<div>
+<span class="block text-primary/60 text-[10px]">WEATHER</span>
+<span class="text-white">RAIN 24mm/h</span>
+</div>
+<div>
+<span class="block text-primary/60 text-[10px]">ACTIVE ZONES</span>
+<span class="text-risk-high animate-pulse">3 CRITICAL</span>
+</div>
+</div>
+</div>
+<div class="hidden md:flex glass-panel rounded-lg px-4 py-2 pointer-events-auto gap-4">
+<button class="flex items-center gap-2 text-xs font-mono text-primary hover:text-white transition-colors">
+<span class="material-icons text-base">layers</span> LAYERS
+            </button>
+<button class="flex items-center gap-2 text-xs font-mono text-gray-400 hover:text-white transition-colors">
+<span class="material-icons text-base">settings</span> CONFIG
+            </button>
+</div>
+</nav>
+<!-- Main Content Area -->
+<div class="absolute inset-0 z-10 flex pointer-events-none p-6 pt-24">
+<!-- Left Side: Map Controls & Quick Stats -->
+<div class="flex flex-col justify-end gap-4 w-64 pointer-events-auto mb-6">
+<div class="glass-panel p-4 rounded-lg space-y-3">
+<h3 class="tech-text">Map Filters</h3>
+<div class="flex flex-col gap-2">
+<label class="flex items-center gap-3 text-sm text-gray-300 cursor-pointer group">
+<div class="w-4 h-4 border border-primary bg-primary rounded-sm flex items-center justify-center">
+<span class="material-icons text-[10px] text-white">check</span>
+</div>
+<span class="group-hover:text-primary transition-colors">Rainfall Intensity</span>
+</label>
+<label class="flex items-center gap-3 text-sm text-gray-300 cursor-pointer group">
+<div class="w-4 h-4 border border-white/20 bg-transparent rounded-sm group-hover:border-primary transition-colors"></div>
+<span class="group-hover:text-primary transition-colors">Soil Saturation</span>
+</label>
+<label class="flex items-center gap-3 text-sm text-gray-300 cursor-pointer group">
+<div class="w-4 h-4 border border-white/20 bg-transparent rounded-sm group-hover:border-primary transition-colors"></div>
+<span class="group-hover:text-primary transition-colors">Slope Stability</span>
+</label>
+</div>
+</div>
+<div class="glass-panel p-2 rounded-lg flex flex-col items-center gap-2 w-12 self-start">
+<button class="w-8 h-8 flex items-center justify-center rounded hover:bg-white/10 text-white/70 hover:text-white transition-colors">
+<span class="material-icons text-lg">add</span>
+</button>
+<div class="w-4 h-px bg-white/10"></div>
+<button class="w-8 h-8 flex items-center justify-center rounded hover:bg-white/10 text-white/70 hover:text-white transition-colors">
+<span class="material-icons text-lg">remove</span>
+</button>
+</div>
+</div>
+<!-- Spacer -->
+<div class="flex-1"></div>
+<!-- Right Side: Analysis Panel -->
+<div class="w-96 flex flex-col gap-4 pointer-events-auto h-full pb-6">
+<!-- Location & Risk Card -->
+<div class="glass-panel rounded-xl p-6 flex flex-col gap-6 relative overflow-hidden group">
+<!-- Decorative scan line -->
+<div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-risk-high to-transparent opacity-50"></div>
+<div class="flex justify-between items-start">
+<div>
+<h2 class="text-2xl font-bold tracking-tight">Meppadi</h2>
+<div class="flex items-center gap-2 text-xs font-mono text-gray-400 mt-1">
+<span class="bg-white/5 px-1.5 py-0.5 rounded text-primary">TALUK: VYTHIRI</span>
+<span>11.56°N, 76.13°E</span>
+</div>
+</div>
+<button class="text-gray-400 hover:text-white">
+<span class="material-icons">close</span>
+</button>
+</div>
+<!-- Risk Gauge -->
+<div class="flex items-center gap-6 justify-center py-2">
+<div class="relative w-32 h-32 flex items-center justify-center">
+<svg class="w-full h-full transform -rotate-90">
+<circle class="text-white/5" cx="64" cy="64" fill="transparent" r="56" stroke="currentColor" stroke-width="8"></circle>
+<circle class="text-risk-high drop-shadow-[0_0_10px_rgba(239,68,68,0.5)]" cx="64" cy="64" fill="transparent" r="56" stroke="currentColor" stroke-dasharray="351.86" stroke-dashoffset="52.78" stroke-width="8"></circle>
+</svg>
+<div class="absolute flex flex-col items-center">
+<span class="text-3xl font-bold font-mono text-white">85%</span>
+<span class="text-[10px] text-risk-high font-bold tracking-widest uppercase mt-1">CRITICAL</span>
+</div>
+</div>
+</div>
+<!-- Metrics Grid -->
+<div class="grid grid-cols-2 gap-3">
+<div class="bg-background-dark/50 border border-white/5 p-3 rounded-lg hover:border-primary/50 transition-colors">
+<div class="flex items-center gap-2 mb-1">
+<span class="material-icons text-primary text-sm">water_drop</span>
+<span class="text-[10px] text-gray-400 uppercase tracking-wide">7-Day Rain</span>
+</div>
+<span class="font-mono text-lg font-medium">342<span class="text-xs text-gray-500 ml-1">mm</span></span>
+<div class="w-full h-1 bg-white/10 rounded-full mt-2 overflow-hidden">
+<div class="h-full w-3/4 bg-blue-400"></div>
+</div>
+</div>
+<div class="bg-background-dark/50 border border-white/5 p-3 rounded-lg hover:border-primary/50 transition-colors">
+<div class="flex items-center gap-2 mb-1">
+<span class="material-icons text-orange-400 text-sm">landscape</span>
+<span class="text-[10px] text-gray-400 uppercase tracking-wide">Slope Angle</span>
+</div>
+<span class="font-mono text-lg font-medium">42<span class="text-xs text-gray-500 ml-1">deg</span></span>
+<div class="w-full h-1 bg-white/10 rounded-full mt-2 overflow-hidden">
+<div class="h-full w-1/2 bg-orange-400"></div>
+</div>
+</div>
+<div class="bg-background-dark/50 border border-white/5 p-3 rounded-lg hover:border-primary/50 transition-colors">
+<div class="flex items-center gap-2 mb-1">
+<span class="material-icons text-purple-400 text-sm">terrain</span>
+<span class="text-[10px] text-gray-400 uppercase tracking-wide">Elevation</span>
+</div>
+<span class="font-mono text-lg font-medium">1,240<span class="text-xs text-gray-500 ml-1">m</span></span>
+</div>
+<div class="bg-background-dark/50 border border-white/5 p-3 rounded-lg hover:border-primary/50 transition-colors">
+<div class="flex items-center gap-2 mb-1">
+<span class="material-icons text-teal-400 text-sm">opacity</span>
+<span class="text-[10px] text-gray-400 uppercase tracking-wide">Soil Sat</span>
+</div>
+<span class="font-mono text-lg font-medium">92<span class="text-xs text-gray-500 ml-1">%</span></span>
+</div>
+</div>
+<div class="mt-2 pt-4 border-t border-white/10">
+<h3 class="tech-text mb-2">Alert History</h3>
+<div class="space-y-2">
+<div class="flex items-start gap-2 text-xs">
+<span class="text-risk-high material-icons text-sm">warning</span>
+<div>
+<span class="text-white block">Soil movement detected</span>
+<span class="text-gray-500 font-mono text-[10px]">Today, 10:30 AM</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Expert Chat Interface -->
+<div class="glass-panel rounded-xl p-0 flex flex-col flex-1 relative overflow-hidden shadow-neon border-primary/30">
+<div class="p-3 bg-primary/10 border-b border-primary/20 flex items-center justify-between">
+<div class="flex items-center gap-2">
+<div class="relative">
+<div class="w-2 h-2 rounded-full bg-green-500 absolute bottom-0 right-0 border border-black"></div>
+<span class="material-icons text-primary">support_agent</span>
+</div>
+<span class="text-xs font-bold text-primary tracking-wide">ASK EXPERT GEOLOGIST</span>
+</div>
+<span class="material-icons text-primary/50 text-sm">analytics</span>
+</div>
+<div class="flex-1 p-4 overflow-y-auto space-y-4 text-sm font-mono scrollbar-hide">
+<!-- Bot Message -->
+<div class="flex gap-3">
+<div class="w-6 h-6 rounded bg-primary/20 flex items-center justify-center shrink-0">
+<span class="material-icons text-primary text-[10px]">smart_toy</span>
+</div>
+<div class="bg-white/5 rounded-lg rounded-tl-none p-3 text-gray-300 border border-white/5">
+                            High-risk zones identified in sector 4. Soil liquidity has increased by 15% in the last 6 hours. How can I assist?
+                        </div>
+</div>
+</div>
+<!-- Input Area -->
+<div class="p-3 bg-black/20 border-t border-white/5">
+<div class="flex gap-2 mb-2">
+<button class="px-2 py-1 bg-primary/10 hover:bg-primary/20 border border-primary/30 rounded text-[10px] text-primary transition-colors">Evacuation Routes</button>
+<button class="px-2 py-1 bg-white/5 hover:bg-white/10 border border-white/10 rounded text-[10px] text-gray-400 transition-colors">Rainfall Trend</button>
+</div>
+<div class="relative">
+<input class="w-full bg-background-dark border border-white/10 rounded pl-3 pr-10 py-2.5 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all" placeholder="Type query for geological analysis..." type="text"/>
+<button class="absolute right-2 top-1/2 -translate-y-1/2 text-primary hover:text-white transition-colors">
+<span class="material-icons text-sm">send</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Map Markers (Simulated Absolute Positioning) -->
+<!-- These would typically be handled by a map library like Mapbox GL JS -->
+<div class="absolute inset-0 pointer-events-none z-0">
+<!-- Meppadi Marker (Active) -->
+<div class="absolute top-[45%] left-[55%] flex flex-col items-center group pointer-events-auto cursor-pointer">
+<div class="relative flex items-center justify-center w-12 h-12">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-risk-high opacity-20"></span>
+<div class="w-4 h-4 bg-risk-high rounded-full border-2 border-white shadow-[0_0_15px_rgba(239,68,68,0.8)] z-10"></div>
+</div>
+<div class="mt-1 bg-background-dark/90 backdrop-blur border border-risk-high/50 px-3 py-1 rounded text-xs font-bold text-white shadow-lg transform translate-y-2 opacity-100 transition-all">
+                MEPPADI (Critical)
+            </div>
+</div>
+<!-- Another Marker (Moderate) -->
+<div class="absolute top-[30%] left-[40%] flex flex-col items-center group pointer-events-auto cursor-pointer opacity-80 hover:opacity-100">
+<div class="w-3 h-3 bg-risk-med rounded-full border border-white shadow-[0_0_10px_rgba(245,158,11,0.6)]"></div>
+<div class="mt-1 bg-black/60 backdrop-blur px-2 py-0.5 rounded text-[10px] font-medium text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                Munnar
+            </div>
+</div>
+</div>
+</body></html>

@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kerala Landslide Risk Monitor</title>
+
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/static/style.css?v=18">
+    <script src="/static/app.js?v=105" defer></script>
+    <script src="/static/drag.js?v=7" defer></script>
+</head>
+
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <div class="logo">
+                <span class="logo-icon">🛡️</span>
+                <h1>Kerala Landslide Risk Monitor</h1>
+            </div>
+
+            <!-- Search Bar -->
+            <div class="search-container"
+                style="flex: 1; margin: 0 2rem; max-width: 500px; position: relative; z-index: 1000;">
+                <input type="text" id="mapSearch" placeholder="🔍 Search Taluk or Place..."
+                    oninput="handleSearch(this.value)" autocomplete="off"
+                    style="width: 100%; padding: 0.75rem 1rem; border-radius: 2rem; border: 1px solid rgba(148, 163, 184, 0.2); background: rgba(30, 41, 59, 0.8); color: white; font-family: 'Inter', sans-serif; height: 100%; backdrop-filter: blur(8px); outline: none; transition: all 0.3s ease; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);">
+                <div id="searchResults" class="search-results hidden"
+                    style="position: absolute; top: 110%; left: 0; width: 100%; max-height: 300px; overflow-y: auto; background: #1e293b; border-radius: 0.5rem; border: 1px solid #334155; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);">
+                </div>
+            </div>
+            <div class="header-stats">
+                <div class="stat">
+                    <span class="stat-value" id="totalTaluks">--</span>
+                    <span class="stat-label">Locations</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-value high" id="highRiskCount">--</span>
+                    <span class="stat-label">High Risk</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-value" id="lastUpdate">--</span>
+                    <span class="stat-label">Last Update</span>
+                </div>
+                <!-- Controls Moved to Header -->
+                <div class="header-controls" style="display:flex; gap:0.5rem; margin-left:1rem;">
+                    <button onclick="openSettings()" id="settingsBtn"
+                        style="background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); color:white; padding:0.4rem 0.8rem; border-radius:8px; cursor:pointer; font-size:0.85rem;">
+                        ⚙️ Settings
+                    </button>
+                    <button onclick="refreshData()" id="refreshBtn"
+                        style="background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); color:white; padding:0.4rem 0.8rem; border-radius:8px; cursor:pointer; font-size:0.85rem;">
+                        🔄 Refresh
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="main-container">
+        <!-- Map -->
+        <div id="map"></div>
+
+        <!-- Info Panel -->
+        <div class="info-panel hidden" id="infoPanel">
+            <div class="panel-header">
+                <h2>Location Details</h2>
+                <button class="close-btn" onclick="closePanel()">×</button>
+            </div>
+            <div class="panel-content" id="panelContent">
+                <!-- Content injected by JS -->
+            </div>
+            <!-- Expert Chat Area -->
+            <div id="expertResult" class="chat-history hidden">
+                <!-- Chat bubbles go here -->
+                <div class="chat-bubble ai">
+                    <strong>🤖 Expert Geologist:</strong><br>
+                    Hello! I analyze satellite data for this location. Ask me anything about soil, slope, or landslide
+                    risk.
+                </div>
+            </div>
+
+            <div class="expert-controls hidden" id="expertControls"
+                style="display:flex; flex-direction:column; gap:0.5rem; margin-top:0.5rem; border-top:1px solid rgba(148,163,184,0.2); padding-top:1rem;">
+                <textarea id="expertQuestion" placeholder="Ask a question..."
+                    style="width:100%; background:rgba(30,41,59,0.5); border:1px solid rgba(148,163,184,0.3); color:white; border-radius:8px; padding:0.5rem; font-family:'Inter',sans-serif; min-height:50px; resize:vertical; font-size:0.85rem;"
+                    onkeydown="if(event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); askExpertGeologist(); }"></textarea>
+
+                <button class="btn-expert" onclick="askExpertGeologist()" id="btnExpert"
+                    style="width: 100%; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; border: none; padding: 0.75rem; border-radius: 8px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.5rem; box-shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.4);">
+                    🚀 Send Message
+                </button>
+            </div>
+        </div>
+
+        <!-- Legend -->
+        <div class="legend">
+            <h3>Risk Level</h3>
+            <div class="legend-item">
+                <span class="legend-color" style="background: #22c55e;"></span>
+                <span>Low (&lt;30%)</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-color" style="background: #eab308;"></span>
+                <span>Medium (30-70%)</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-color" style="background: #ef4444;"></span>
+                <span>High (&gt;70%)</span>
+            </div>
+        </div>
+
+        <!-- Controls Removed (Moved to Header) -->
+
+        <!-- Settings Modal -->
+        <div class="modal hidden" id="settingsModal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Configuration</h2>
+                    <button class="close-btn" onclick="closeSettings()">×</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>Weather Provider</label>
+                        <select id="providerSelect" class="form-control">
+                            <option value="open_meteo">Open-Meteo (Free, No Key)</option>
+                            <option value="openweathermap">OpenWeatherMap (Requires Key)</option>
+                        </select>
+                        <p class="help-text">Switch if one provider hits rate limits.</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label>API Key</label>
+                        <input type="text" id="apiKeyInput" class="form-control" placeholder="Enter API Key">
+                        <p class="help-text">Required for OpenWeatherMap. Get one at <a
+                                href="https://openweathermap.org/api" target="_blank">openweathermap.org</a></p>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-secondary" onclick="closeSettings()">Cancel</button>
+                    <button class="btn-primary" onclick="saveSettings()">Save Changes</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading Overlay -->
+        <div class="loading-overlay" id="loadingOverlay">
+            <div class="spinner"></div>
+            <p>Loading predictions...</p>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <p>Data updates every 5 minutes • Rainfall from Open-Meteo • <a href="/admin" target="_blank"
+                style="color:var(--text-secondary)">Simulation Console</a></p>
+    </footer>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</body>
+
+</html>
