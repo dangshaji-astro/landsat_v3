@@ -92,15 +92,16 @@ def predict_risk(dem: float, slope: float, rain7: float,
     }])
 
     raw_prob = model.predict_proba(features)[0][1]  # ML terrain-based probability (0-1)
-    ml_prob = min(raw_prob / 0.35, 1.0)  # Calibrate imbalanced RF output (max ~0.35) to full 0..1 scale
+    # Calibrate: RF on imbalanced data outputs low positives. /0.6 rescales without over-inflating.
+    ml_prob = min(raw_prob / 0.6, 1.0)
 
     # ── Effective Rainfall: SWI or raw sum ──────────────────────────────────
     swi_data = None
     if history:
         swi_data = compute_swi(history, soil_type)
-        # SWI-based effective rain: saturated soil = similar to very heavy rain
-        # saturation of 1.0 → treat as 250mm effective rain
-        effective_rain = swi_data["saturation"] * 250
+        # SWI saturation of 1.0 (fully saturated) → 180mm equivalent effective rain.
+        # Lowered from 250 to avoid moderate saturation instantly triggering HIGH.
+        effective_rain = swi_data["saturation"] * 180
     else:
         effective_rain = rain7
 
@@ -112,18 +113,18 @@ def predict_risk(dem: float, slope: float, rain7: float,
     elif effective_rain < 115:
         rain_component = 0.20 + (effective_rain - 64) / 51 * 0.25   # 0.20 → 0.45
     elif effective_rain < 204:
-        rain_component = 0.45 + (effective_rain - 115) / 89 * 0.20  # 0.45 → 0.65
+        rain_component = 0.45 + (effective_rain - 115) / 89 * 0.25  # 0.45 → 0.70
     else:
-        rain_component = min(0.65 + (effective_rain - 204) / 200 * 0.20, 0.85)  # → 0.85
+        rain_component = min(0.70 + (effective_rain - 204) / 200 * 0.15, 0.85)  # → 0.85
 
-    # Blend: rain drives risk on high-rain days; terrain matters more on dry days
-    rain_weight = min(effective_rain / 150, 0.7)   # caps at 70% rain weight
+    # Blend: rain weight capped at 0.55 so terrain still contributes during heavy rain
+    rain_weight = min(effective_rain / 150, 0.55)
     probability = (1 - rain_weight) * ml_prob + rain_weight * rain_component
     probability = round(min(max(probability, 0.0), 1.0), 3)
 
-    if probability < 0.4:
+    if probability < 0.45:
         level, color = "LOW", "#22c55e"
-    elif probability < 0.60:
+    elif probability < 0.72:
         level, color = "MEDIUM", "#eab308"
     else:
         level, color = "HIGH", "#ef4444"
@@ -155,7 +156,8 @@ def predict_batch(locations: list) -> list:
     } for loc in locations])
 
     raw_probs = model.predict_proba(df)[:, 1]
-    ml_probs = [min(p / 0.35, 1.0) for p in raw_probs]
+    # Calibrate: /0.6 rescales without over-inflating low-base RF positives
+    ml_probs = [min(p / 0.6, 1.0) for p in raw_probs]
 
     results = []
     for i, loc in enumerate(locations):
@@ -167,7 +169,8 @@ def predict_batch(locations: list) -> list:
         swi_data = None
         if history:
             swi_data = compute_swi(history, soil_type)
-            effective_rain = swi_data["saturation"] * 250
+            # SWI saturation of 1.0 → 180mm equivalent; avoids moderate rain → instant HIGH
+            effective_rain = swi_data["saturation"] * 180
         else:
             effective_rain = rain7
 
@@ -178,17 +181,18 @@ def predict_batch(locations: list) -> list:
         elif effective_rain < 115:
             rain_component = 0.20 + (effective_rain - 64) / 51 * 0.25
         elif effective_rain < 204:
-            rain_component = 0.45 + (effective_rain - 115) / 89 * 0.20
+            rain_component = 0.45 + (effective_rain - 115) / 89 * 0.25
         else:
-            rain_component = min(0.65 + (effective_rain - 204) / 200 * 0.20, 0.85)
+            rain_component = min(0.70 + (effective_rain - 204) / 200 * 0.15, 0.85)
 
-        rain_weight = min(effective_rain / 150, 0.7)
+        # Rain weight capped at 0.55 — terrain still contributes during heavy rainfall
+        rain_weight = min(effective_rain / 150, 0.55)
         probability = (1 - rain_weight) * ml_prob + rain_weight * rain_component
         probability = round(min(max(float(probability), 0.0), 1.0), 3)
 
-        if probability < 0.4:
+        if probability < 0.45:
             level, color = "LOW", "#22c55e"
-        elif probability < 0.65:
+        elif probability < 0.72:
             level, color = "MEDIUM", "#eab308"
         else:
             level, color = "HIGH", "#ef4444"

@@ -389,6 +389,9 @@
             <span class="pm-v-hud" id="psoil">Laterite</span>
         </div>
     </div>
+    <!-- Location row -->
+    <div style="padding: 4px 12px 2px; font-size:11px; color: var(--muted, #888); letter-spacing:0.06em;">LOCATION</div>
+    <div style="padding: 2px 12px 10px; font-size:13px; font-weight:600; color:#e2e8f0;" id="ploc">—</div>
 
     <!-- Dotted Progress Ticks Bar -->
     <div class="pop-meter-container">
@@ -651,11 +654,14 @@ function buildSubgridLayers(geoData, predMap) {
 function showSubgridPopup(cellId, point, props) {
     const p = subgridPredictions[cellId] || props;
     selectedId = cellId;
-    const pct = Math.round(p.probability || props.probability || 0);
+    // probability is a 0–1 float — multiply × 100 before rounding
+    const pct = Math.round((p.probability || props.probability || 0) * 100);
     const clr = p.color || props.risk_color || '#3fb950';
     const isHigh = (p.risk_level || props.risk_level) === 'HIGH';
+    const talukName = p.taluk_name || props.taluk_name || '';
 
-    document.getElementById('pname').textContent = `1km Grid Cell ${cellId}`;
+    // Show taluk name in header; fall back to a friendly cell label
+    document.getElementById('pname').textContent = talukName || `Grid Cell ${cellId}`;
     document.getElementById('prl').textContent = `${p.risk_level || props.risk_level || 'LOW'} RISK · ${pct}% PROBABILITY`;
     document.getElementById('prl').style.color = clr;
 
@@ -664,6 +670,10 @@ function showSubgridPopup(cellId, point, props) {
     document.getElementById('prain').textContent = (p.rain7 || props.rain7 || 0).toFixed(1) + 'mm';
     document.getElementById('psoil').textContent = p.soil_type || props.soil_texture || 'Laterite';
     document.getElementById('ppct').textContent = pct + '%';
+
+    // Location row: taluk name + state
+    const locEl = document.getElementById('ploc');
+    if (locEl) locEl.textContent = talukName ? `📍 ${talukName}, Kerala` : '📍 Kerala';
 
     const ticksContainer = document.getElementById('pticks');
     ticksContainer.innerHTML = '';

@@ -7,6 +7,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from datetime import datetime
 import json
 import asyncio
+import math
 from pathlib import Path
 
 from .rainfall_fetcher import fetch_rainfall_batch
@@ -19,6 +20,7 @@ last_update_time = None
 last_subgrid_update_time = None
 _taluks_cache = None
 _subgrid_cache = None
+_taluk_index = None   # List of (lat, lon, name) centroids for nearest-lookup
 
 # Path to data
 DATA_DIR = Path(__file__).parent.parent / "data"
@@ -50,6 +52,7 @@ SOIL_CODE_MAP = {
 scheduler = AsyncIOScheduler()
 
 
+
 def load_taluks():
     """Load taluk data — prefers GEE-enriched file if available (Cached)"""
     global _taluks_cache
@@ -78,6 +81,42 @@ def load_subgrid():
             _subgrid_cache = json.load(f)
             return _subgrid_cache
     return {"features": []}
+
+
+def _build_taluk_index():
+    """Build a lightweight centroid index of (lat, lon, name) from taluk data."""
+    global _taluk_index
+    if _taluk_index is not None:
+        return _taluk_index
+    taluks_data = load_taluks()
+    index = []
+    for feature in taluks_data.get("features", []):
+        props = feature.get("properties", {})
+        centroid = props.get("centroid", {})
+        lat = centroid.get("lat") or props.get("latitude") or 0.0
+        lon = centroid.get("lon") or props.get("longitude") or 0.0
+        name = props.get("name") or props.get("taluk_name") or "Kerala"
+        if lat and lon:
+            index.append((lat, lon, name))
+    _taluk_index = index
+    print(f"[Scheduler] Built taluk index with {len(index)} centroids")
+    return _taluk_index
+
+
+def nearest_taluk(lat: float, lon: float) -> str:
+    """Return the name of the nearest taluk to the given lat/lon."""
+    index = _build_taluk_index()
+    if not index:
+        return "Kerala"
+    best_name = "Kerala"
+    best_dist = float("inf")
+    for (t_lat, t_lon, t_name) in index:
+        # Approximate squared Euclidean distance in degrees (no need for haversine at this scale)
+        d = (lat - t_lat) ** 2 + (lon - t_lon) ** 2
+        if d < best_dist:
+            best_dist = d
+            best_name = t_name
+    return best_name
 
 
 async def update_predictions(skip_rainfall: bool = False):
@@ -174,6 +213,9 @@ async def update_subgrid_predictions(skip_rainfall: bool = False):
         print("No 1km subgrid data found!")
         return
 
+    # Pre-build taluk index once for the whole batch (avoids rebuilding 40k times)
+    _build_taluk_index()
+
     locations = []
     for feature in features:
         props = feature.get("properties", {})
@@ -184,6 +226,7 @@ async def update_subgrid_predictions(skip_rainfall: bool = False):
         slope = props.get("slope_max", props.get("slope_avg", 15))
         soil_code = props.get("soil_code", -1)
         soil_type = SOIL_CODE_MAP.get(soil_code, "Laterite")
+        taluk_name = nearest_taluk(center_lat, center_lon)
 
         locations.append({
             "cell_id": cell_id,
@@ -191,13 +234,15 @@ async def update_subgrid_predictions(skip_rainfall: bool = False):
             "longitude": center_lon,
             "dem": dem if dem is not None else 500,
             "slope": slope if slope is not None else 15,
-            "soil_type": soil_type
+            "soil_type": soil_type,
+            "taluk_name": taluk_name
         })
 
     if skip_rainfall:
         rainfall_data = [{"rain7": 0} for _ in locations]
     else:
         rainfall_data = await fetch_rainfall_batch(locations)
+
 
     prediction_inputs = []
     for i, loc in enumerate(locations):
@@ -223,6 +268,7 @@ async def update_subgrid_predictions(skip_rainfall: bool = False):
             "dem": loc["dem"],
             "slope": loc["slope"],
             "soil_type": loc["soil_type"],
+            "taluk_name": loc["taluk_name"],
             "rain7": data.get("rain7", 0),
             **predictions[i]
         }
